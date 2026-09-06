@@ -1,0 +1,29 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+appenv/
+*.sqlite3
+
+# Generated documents
+*-receipt.pdf
+
+# JavaScript
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Logs and local tooling
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
