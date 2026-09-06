@@ -1,0 +1,18 @@
+[Unit]
+Description=Stechpay Django application
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/stechpay/backend
+EnvironmentFile=/etc/stechpay.env
+RuntimeDirectory=stechpay
+RuntimeDirectoryMode=0755
+ExecStart=/srv/stechpay/backend/.venv/bin/gunicorn --workers 3 --bind unix:/run/stechpay/gunicorn.sock stechpay.wsgi:application
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

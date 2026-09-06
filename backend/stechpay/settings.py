@@ -39,14 +39,15 @@ def env(key, default=''):
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = env(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-6*z1)9d(fal97p6nq^w*(&ps^ejfkr+t_5jog$q_^xm!1lyf-5',
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env('DEBUG', 'True').lower() in ('true', '1', 'yes')
+
+# Production must supply a unique secret through the environment. The fallback
+# only supports local development and is never valid when DEBUG is disabled.
+if DEBUG:
+    SECRET_KEY = env('DJANGO_SECRET_KEY', 'django-insecure-local-development-only')
+else:
+    SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 _allowed = env('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
@@ -203,6 +204,8 @@ PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY')
 
 # Production Security & SSL Settings
 if not DEBUG:
+    # Nginx is the only TLS-terminating reverse proxy in the production setup.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = env('SECURE_SSL_REDIRECT', 'True').lower() in ('true', '1', 'yes')
     SESSION_COOKIE_SECURE = env('SESSION_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')
     CSRF_COOKIE_SECURE = env('CSRF_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')

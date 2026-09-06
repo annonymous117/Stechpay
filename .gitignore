@@ -11,6 +11,10 @@ __pycache__/
 venv/
 appenv/
 *.sqlite3
+staticfiles/
+*.pem
+staticfiles/
+*.pem
 
 # Generated documents
 *-receipt.pdf
