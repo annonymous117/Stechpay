@@ -6,6 +6,12 @@ APP_DIR=/srv/stechpay
 cd "$APP_DIR"
 git pull --ff-only origin main
 
+if [ -f /etc/stechpay.env ]; then
+  set -a
+  source /etc/stechpay.env
+  set +a
+fi
+
 "$APP_DIR/backend/.venv/bin/pip" install -r "$APP_DIR/backend/requirements.txt"
 
 cd "$APP_DIR/frontend/stechpay"

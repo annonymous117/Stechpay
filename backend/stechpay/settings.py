@@ -112,6 +112,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': env('THROTTLE_ANON_RATE', '120/minute'),
         'user': env('THROTTLE_USER_RATE', '300/minute'),
+        'login': env('THROTTLE_LOGIN_RATE', '5/minute'),
     },
 }
 
@@ -201,6 +202,12 @@ FRONTEND_URL = env('FRONTEND_URL', 'http://localhost:5173')
 # Paystack
 PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY')
 PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY')
+PAYSTACK_MOCK_MODE = env('PAYSTACK_MOCK_MODE', 'False').lower() in ('true', '1', 'yes')
+
+# Session Management (10-minute sliding inactivity timeout)
+SESSION_COOKIE_AGE = int(env('SESSION_COOKIE_AGE', '600'))  # 10 minutes (600 seconds)
+SESSION_SAVE_EVERY_REQUEST = True  # Resets the 10-minute timer on every active request
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 # Production Security & SSL Settings
 if not DEBUG:

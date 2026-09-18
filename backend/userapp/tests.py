@@ -235,4 +235,79 @@ class StechpayTests(TestCase):
         self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
         self.assertGreater(len(pdf_bytes), 2000)
 
+    @patch("userapp.paystack.initialize_transaction")
+    def test_reusing_active_pending_payment(self, mock_init):
+        """Test that initiating payment when a recent pending payment exists reuses it without duplicates."""
+        mock_init.return_value = {
+            "authorization_url": "https://checkout.paystack.com/mock_pending_1",
+            "reference": "STECH-PENDING-001",
+        }
+        payload = {
+            "full_name": "Tola Ade",
+            "email": "tola@school.edu.ng",
+            "matric_number": "CSC/26/001",
+        }
+        # First call creates pending payment
+        r1 = self.client.post("/api/payments/initiate/", data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(Payment.objects.filter(matric_number="CSC/26/001").count(), 1)
+
+        # Second call in quick succession reuses the same pending payment
+        r2 = self.client.post("/api/payments/initiate/", data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(r2.status_code, 200)
+        self.assertTrue(r2.json().get("resumed"))
+        # Verify no duplicate payment records were created
+        self.assertEqual(Payment.objects.filter(matric_number="CSC/26/001").count(), 1)
+        self.assertEqual(mock_init.call_count, 1)
+
+    @patch("userapp.paystack.initialize_transaction")
+    def test_initiate_payment_handles_paystack_error(self, mock_init):
+        """Test PaystackError gracefully returns 502 Bad Gateway instead of 500 crash."""
+        from userapp.paystack import PaystackError
+        mock_init.side_effect = PaystackError("Invalid Paystack credentials")
+
+        payload = {
+            "full_name": "Bola Tinubu",
+            "email": "bola@school.edu.ng",
+            "matric_number": "STA/26/005",
+        }
+        Fee.objects.create(department="STA", level=100, amount=Decimal("20000.00"), is_active=True)
+
+        resp = self.client.post("/api/payments/initiate/", data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(resp.status_code, 502)
+        self.assertIn("Could not initiate transaction", resp.json()["detail"])
+
+        payment = Payment.objects.filter(matric_number="STA/26/005").first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.status, Payment.Status.FAILED)
+        self.assertIn("Gateway initialization failed", payment.gateway_response)
+
+    def test_session_configuration_settings(self):
+        """Test session cookie age is 10 minutes and session saves every request."""
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 600)
+        self.assertTrue(settings.SESSION_SAVE_EVERY_REQUEST)
+        self.assertTrue(settings.SESSION_EXPIRE_AT_BROWSER_CLOSE)
+
+    def test_admin_login_rate_limiting(self):
+        """Test admin login is throttled after exceeding the rate limit."""
+        from django.core.cache import cache
+        cache.clear()
+
+        # Send 5 attempts (the allowed threshold)
+        for _ in range(5):
+            r = self.client.post(
+                "/api/admin/login/",
+                data=json.dumps({"username": "bad", "password": "bad"}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400)
+
+        # 6th attempt should be throttled (429 Too Many Requests)
+        r6 = self.client.post(
+            "/api/admin/login/",
+            data=json.dumps({"username": "bad", "password": "bad"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r6.status_code, 429)
+
 

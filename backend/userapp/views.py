@@ -14,10 +14,20 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+    throttle_classes,
+)
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    scope = "login"
 
 from . import paystack
 from .constants import (
@@ -196,6 +206,40 @@ def initiate_payment(request):
     if existing:
         return Response({"already_paid": True, "payment": _payment_summary(existing)})
 
+    # Re-use active pending payment initiated within the last 15 minutes to avoid duplicates
+    cutoff = timezone.now() - timezone.timedelta(minutes=15)
+    recent_pending = (
+        Payment.objects.filter(
+            matric_number=matric,
+            session_start=session_start,
+            department_code=parsed["department_code"],
+            level=parsed["level"],
+            status=Payment.Status.PENDING,
+            created_at__gte=cutoff,
+        )
+        .exclude(authorization_url="")
+        .first()
+    )
+    if recent_pending:
+        return Response(
+            {
+                "already_paid": False,
+                "authorization_url": recent_pending.authorization_url,
+                "reference": recent_pending.reference,
+                "resumed": True,
+            }
+        )
+
+    # Cancel/supersede any older pending attempts for this matric in this session
+    Payment.objects.filter(
+        matric_number=matric,
+        session_start=session_start,
+        status=Payment.Status.PENDING,
+    ).update(
+        status=Payment.Status.FAILED,
+        gateway_response="Superseded by a new payment attempt",
+    )
+
     dept = Department.objects.filter(code=parsed["department_code"]).first()
     subaccount_code = dept.subaccount_code.strip() if dept and dept.subaccount_code else ""
 
@@ -212,21 +256,35 @@ def initiate_payment(request):
         subaccount_code=subaccount_code,
     )
 
-    result = paystack.initialize_transaction(
-        email=email,
-        amount=fee.amount,
-        reference=reference,
-        callback_url=_callback_url(request),
-        metadata={
-            "full_name": full_name,
-            "matric_number": matric,
-            "department": parsed["department_code"],
-            "level": parsed["level"],
-        },
-        subaccount=subaccount_code or None,
-    )
-    payment.authorization_url = result["authorization_url"]
-    payment.save(update_fields=["authorization_url"])
+    try:
+        result = paystack.initialize_transaction(
+            email=email,
+            amount=fee.amount,
+            reference=reference,
+            callback_url=_callback_url(request),
+            metadata={
+                "full_name": full_name,
+                "matric_number": matric,
+                "department": parsed["department_code"],
+                "level": parsed["level"],
+            },
+            subaccount=subaccount_code or None,
+        )
+        payment.authorization_url = result["authorization_url"]
+        payment.save(update_fields=["authorization_url"])
+    except paystack.PaystackError as exc:
+        payment.status = Payment.Status.FAILED
+        payment.gateway_response = f"Gateway initialization failed: {exc}"[:500]
+        payment.save(update_fields=["status", "gateway_response"])
+        return Response(
+            {"detail": f"Could not initiate transaction with payment provider: {exc}"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as exc:
+        payment.status = Payment.Status.FAILED
+        payment.gateway_response = f"Initialization error: {exc}"[:500]
+        payment.save(update_fields=["status", "gateway_response"])
+        raise
 
     return Response(
         {"already_paid": False, "authorization_url": result["authorization_url"], "reference": reference}
@@ -313,6 +371,7 @@ def receipt_pdf(request, reference):
 @api_view(["POST"])
 @authentication_classes([SessionAuthentication])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])
 def admin_login(request):
     username = str((request.data or {}).get("username", "")).strip()
     password = str((request.data or {}).get("password", ""))

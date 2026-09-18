@@ -13,7 +13,10 @@ class PaystackError(Exception):
 
 
 def is_mock_mode():
-    return not bool(settings.PAYSTACK_SECRET_KEY)
+    if getattr(settings, 'PAYSTACK_MOCK_MODE', False):
+        return True
+    key = getattr(settings, 'PAYSTACK_SECRET_KEY', '') or ''
+    return not bool(key) or key.startswith('sk_test_placeholder') or key.lower() in ('mock', 'test_mock')
 
 
 def initialize_transaction(email, amount, reference, callback_url, metadata=None, subaccount=None):

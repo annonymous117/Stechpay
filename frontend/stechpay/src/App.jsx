@@ -1086,8 +1086,13 @@ function AdminDashboard({ meta, reloadMeta, onLoggedOut }) {
   const [adminTab, setAdminTab] = useState('overview') // 'overview' | 'departments' | 'fees' | 'payments' | 'session' | 'verify'
 
   const loadStats = useCallback(
-    () => api('/admin/stats/').then(setStats).catch(() => {}),
-    [],
+    () =>
+      api('/admin/stats/')
+        .then(setStats)
+        .catch((err) => {
+          if (err?.status === 401 || err?.status === 403) onLoggedOut()
+        }),
+    [onLoggedOut],
   )
   useEffect(() => {
     loadStats()
