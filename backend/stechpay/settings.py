@@ -213,13 +213,13 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 if not DEBUG:
     # Nginx is the only TLS-terminating reverse proxy in the production setup.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    SECURE_SSL_REDIRECT = env('SECURE_SSL_REDIRECT', 'True').lower() in ('true', '1', 'yes')
-    SESSION_COOKIE_SECURE = env('SESSION_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')
-    CSRF_COOKIE_SECURE = env('CSRF_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')
+    SECURE_SSL_REDIRECT = env('SECURE_SSL_REDIRECT', 'False').lower() in ('true', '1', 'yes')
+    SESSION_COOKIE_SECURE = env('SESSION_COOKIE_SECURE', 'False').lower() in ('true', '1', 'yes')
+    CSRF_COOKIE_SECURE = env('CSRF_COOKIE_SECURE', 'False').lower() in ('true', '1', 'yes')
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_HSTS_SECONDS = int(env('SECURE_HSTS_SECONDS', '31536000'))
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+    SECURE_HSTS_SECONDS = int(env('SECURE_HSTS_SECONDS', '0'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'False').lower() in ('true', '1', 'yes')
+    SECURE_HSTS_PRELOAD = env('SECURE_HSTS_PRELOAD', 'False').lower() in ('true', '1', 'yes')
 
 

@@ -187,6 +187,7 @@ function PaymentForm({ meta, onSuccess }) {
 }
 
 function ResultCard({ payment, onReset }) {
+  if (!payment) return null
   const success = payment.status === 'successful'
   return (
     <div className={`card result-card ${success ? 'ok' : 'bad'}`}>
@@ -1290,27 +1291,38 @@ export default function App() {
       </header>
 
       <main className="content">
-        {result && (
+        {result?.payment && (
           <ResultCard
             payment={result.payment}
             onReset={() => setResult(null)}
           />
         )}
 
-        {!result && tab === 'pay' &&
+        {!result?.payment && !result?.error && tab === 'pay' &&
           (meta ? (
             <PaymentForm meta={meta} onSuccess={(payment) => setResult({ payment })} />
           ) : (
             <Spinner />
           ))}
 
-        {!result && tab === 'admin' &&
+        {!result?.payment && !result?.error && tab === 'admin' &&
           (meta ? <AdminView meta={meta} reloadMeta={loadMeta} /> : <Spinner />)}
 
         {result?.error && (
           <div className="card result-card bad">
-            <h2>Something went wrong</h2>
+            <div className="result-icon">✕</div>
+            <h2>Unable to load application</h2>
             <p className="muted">{result.error}</p>
+            <button
+              className="btn primary"
+              style={{ marginTop: '1rem' }}
+              onClick={() => {
+                setResult(null)
+                loadMeta()
+              }}
+            >
+              Retry
+            </button>
           </div>
         )}
       </main>
