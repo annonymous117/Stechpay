@@ -40,7 +40,8 @@ def env(key, default=''):
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env('DEBUG', 'True').lower() in ('true', '1', 'yes')
+APP_ENV = env('APP_ENV', 'development')
+DEBUG = env('DEBUG', str(APP_ENV == 'development')).lower() in ('true', '1', 'yes')
 
 # Production must supply a unique secret through the environment. The fallback
 # only supports local development and is never valid when DEBUG is disabled.
@@ -72,6 +73,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'userapp.security.SecurityBoundaryMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -99,6 +101,9 @@ WSGI_APPLICATION = 'stechpay.wsgi.application'
 # DRF
 
 REST_FRAMEWORK = {
+    'NUM_PROXIES': int(env('TRUSTED_PROXY_COUNT', '0')),
+    'DEFAULT_PARSER_CLASSES': ['userapp.serializers.StrictJSONParser', 'rest_framework.parsers.FormParser'],
+    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
     ],
@@ -134,6 +139,8 @@ if env('POSTGRES_DB'):
             'HOST': env('POSTGRES_HOST', 'localhost'),
             'PORT': env('POSTGRES_PORT', '5432'),
             'CONN_MAX_AGE': int(env('DB_CONN_MAX_AGE', '60')),
+            'CONN_HEALTH_CHECKS': True,
+            'OPTIONS': {'sslmode': env('POSTGRES_SSLMODE', 'prefer')},
         }
     }
 else:
@@ -141,6 +148,7 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {'timeout': 20, 'transaction_mode': 'IMMEDIATE'},
         }
     }
 
@@ -149,6 +157,7 @@ else:
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'userapp.passwords.ExposedPasswordValidator'},
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
@@ -203,6 +212,13 @@ FRONTEND_URL = env('FRONTEND_URL', 'http://localhost:5173')
 PAYSTACK_SECRET_KEY = env('PAYSTACK_SECRET_KEY')
 PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY')
 PAYSTACK_MOCK_MODE = env('PAYSTACK_MOCK_MODE', 'False').lower() in ('true', '1', 'yes')
+PAYSTACK_MODE = env('PAYSTACK_MODE', 'test')
+ALLOW_LIVE_PAYMENTS = env('ALLOW_LIVE_PAYMENTS', 'False').lower() in ('true', '1', 'yes')
+PAYSTACK_WEBHOOK_SECRETS = [s.strip() for s in env('PAYSTACK_WEBHOOK_SECRETS').split(',') if s.strip()]
+ADMIN_MFA_REQUIRED = env('ADMIN_MFA_REQUIRED', str(not DEBUG)).lower() in ('true', '1', 'yes')
+DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 50
+EMAIL_TIMEOUT = 15
 
 # Session Management (10-minute sliding inactivity timeout)
 SESSION_COOKIE_AGE = int(env('SESSION_COOKIE_AGE', '600'))  # 10 minutes (600 seconds)
@@ -212,13 +228,13 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 # Production Security & SSL Settings
 if not DEBUG:
     # Nginx is the only TLS-terminating reverse proxy in the production setup.
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    SECURE_SSL_REDIRECT = env('SECURE_SSL_REDIRECT', 'False').lower() in ('true', '1', 'yes')
-    SESSION_COOKIE_SECURE = env('SESSION_COOKIE_SECURE', 'False').lower() in ('true', '1', 'yes')
-    CSRF_COOKIE_SECURE = env('CSRF_COOKIE_SECURE', 'False').lower() in ('true', '1', 'yes')
-    SECURE_BROWSER_XSS_FILTER = True
+    if REST_FRAMEWORK['NUM_PROXIES']:
+        SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = env('SECURE_SSL_REDIRECT', 'True').lower() in ('true', '1', 'yes')
+    SESSION_COOKIE_SECURE = env('SESSION_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')
+    CSRF_COOKIE_SECURE = env('CSRF_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_HSTS_SECONDS = int(env('SECURE_HSTS_SECONDS', '0'))
+    SECURE_HSTS_SECONDS = int(env('SECURE_HSTS_SECONDS', '31536000'))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = env('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'False').lower() in ('true', '1', 'yes')
     SECURE_HSTS_PRELOAD = env('SECURE_HSTS_PRELOAD', 'False').lower() in ('true', '1', 'yes')
 

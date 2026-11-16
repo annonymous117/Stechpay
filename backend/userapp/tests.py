@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import uuid
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -15,7 +16,8 @@ from .receipts import generate_receipt_pdf
 
 class StechpayTests(TestCase):
     def setUp(self):
-        self.client = Client(enforce_csrf_checks=False)
+        self.client = Client(enforce_csrf_checks=False, HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()))
+        self.client.get('/api/csrf/')
         self.session_config = SessionConfig.objects.create(session_start=2026)
 
         # Seed test departments including ICH and MCB
@@ -122,6 +124,8 @@ class StechpayTests(TestCase):
             content_type="application/json",
         )
         ref = resp.json()["reference"]
+        mock_verify.return_value['raw'].update(reference=ref, id=123, domain='test', status='success',
+            customer={'email': 'ada@school.edu.ng'}, subaccount={'subaccount_code': 'ACCT_ich456'})
 
         v_resp = self.client.post(
             "/api/payments/verify/",
@@ -147,11 +151,19 @@ class StechpayTests(TestCase):
             amount=Decimal("24000.00"),
             reference="STECH-WEBHOOK-TEST-123",
         )
+        from .models import PaymentObligation
+        from .payments import process_event
+        from .models import GatewayEvent
+        payment.obligation = PaymentObligation.objects.create(matric_number=payment.matric_number, session_start=2026, mode='test')
+        payment.save()
 
         webhook_payload = {
             "event": "charge.success",
             "data": {
                 "reference": "STECH-WEBHOOK-TEST-123",
+                "id": 124,
+                "domain": "test",
+                "customer": {"email": "kola@school.edu.ng"},
                 "amount": 2400000,
                 "currency": "NGN",
                 "status": "success",
@@ -171,6 +183,7 @@ class StechpayTests(TestCase):
                 HTTP_X_PAYSTACK_SIGNATURE=signature,
             )
             self.assertEqual(resp.status_code, 200)
+            process_event(GatewayEvent.objects.get().pk)
 
         payment.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.SUCCESS)
@@ -264,7 +277,7 @@ class StechpayTests(TestCase):
     def test_initiate_payment_handles_paystack_error(self, mock_init):
         """Test PaystackError gracefully returns 502 Bad Gateway instead of 500 crash."""
         from userapp.paystack import PaystackError
-        mock_init.side_effect = PaystackError("Invalid Paystack credentials")
+        mock_init.side_effect = PaystackError("Invalid Paystack credentials", definitive=True)
 
         payload = {
             "full_name": "Bola Tinubu",
@@ -279,8 +292,8 @@ class StechpayTests(TestCase):
 
         payment = Payment.objects.filter(matric_number="STA/26/005").first()
         self.assertIsNotNone(payment)
-        self.assertEqual(payment.status, Payment.Status.FAILED)
-        self.assertIn("Gateway initialization failed", payment.gateway_response)
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertIn("reconciliation required", payment.gateway_response)
 
     def test_session_configuration_settings(self):
         """Test session cookie age is 10 minutes and session saves every request."""

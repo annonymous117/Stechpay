@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Stechpay PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=stechpay-backup.service
+
+[Install]
+WantedBy=timers.target

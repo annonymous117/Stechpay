@@ -59,18 +59,28 @@ function PaymentForm({ meta, onSuccess }) {
     }
     setSubmitting(true)
     try {
+      const signature = JSON.stringify([meta.payment_mode, meta.session_start, form.full_name.trim(), form.email.trim().toLowerCase(), parsed.normalized])
+      let attempt
+      try { attempt = JSON.parse(sessionStorage.getItem('stechpay.checkout')) } catch { /* Start a new request. */ }
+      if (!attempt || attempt.signature !== signature) {
+        attempt = { signature, key: crypto.randomUUID() }
+        sessionStorage.setItem('stechpay.checkout', JSON.stringify(attempt))
+      }
       const result = await api('/payments/initiate/', {
         method: 'POST',
+        headers: { 'Idempotency-Key': attempt.key },
         body: {
           full_name: form.full_name.trim(),
           email: form.email.trim(),
           matric_number: form.matric_number.trim(),
         },
       })
-      if (result.already_paid) {
+      if (result.payment) {
+        if (result.payment.status !== 'pending') sessionStorage.removeItem('stechpay.checkout')
         onSuccess(result.payment)
         return
       }
+      if (!result.authorization_url) throw new Error(result.detail || 'Checkout is being confirmed. Retry shortly.')
       window.location.href = result.authorization_url
     } catch (error) {
       setErrors(error.data || {})
@@ -91,9 +101,9 @@ function PaymentForm({ meta, onSuccess }) {
         Session {meta.session} · Pay your departmental dues securely online.
       </p>
 
-      {meta.paystack_mock_mode && (
+      {meta.payment_mode === 'test' && (
         <div className="mock-banner">
-          Demo mode — Paystack test environment active.
+          Paystack test mode — no real money will be collected.
         </div>
       )}
 
@@ -186,9 +196,21 @@ function PaymentForm({ meta, onSuccess }) {
   )
 }
 
-function ResultCard({ payment, onReset }) {
+function ResultCard({ payment: initialPayment, onReset }) {
+  const [payment, setPayment] = useState(initialPayment)
+  const [checkError, setCheckError] = useState('')
+  const [checking, setChecking] = useState(false)
+  async function refreshPayment() {
+    setChecking(true)
+    setCheckError('')
+    try {
+      const data = await api('/payments/verify/', { method: 'POST', body: { reference: payment.reference } })
+      setPayment(data.payment)
+    } catch (error) { setCheckError(error.message) }
+    finally { setChecking(false) }
+  }
   if (!payment) return null
-  const success = payment.status === 'successful'
+  const success = payment.status === 'successful' && payment.allocation === 'applied'
   return (
     <div className={`card result-card ${success ? 'ok' : 'bad'}`}>
       <div className="result-icon">{success ? '✓' : '✕'}</div>
@@ -196,8 +218,10 @@ function ResultCard({ payment, onReset }) {
       <p className="muted">
         {success
           ? `${payment.department} dues for ${payment.level} Level (${payment.session}) confirmed.`
-          : 'The transaction was not completed. You can safely try again.'}
+          : 'The payment is pending, unsuccessful, or needs review. Check its status before starting another payment.'}
       </p>
+      {payment.mode === 'test' && <div className="alert">Paystack test payment — no real money collected.</div>}
+      {payment.allocation === 'duplicate' && <div className="alert">An additional charge was recorded. Contact the bursary for review.</div>}
 
       <dl className="detail-list">
         {[
@@ -226,9 +250,13 @@ function ResultCard({ payment, onReset }) {
       )}
       {success && (
         <p className="fine-print muted">
-          A confirmation email has been sent to {payment.email}.
+          {payment.email_sent ? 'A confirmation email has been sent.' : 'Your confirmation email is queued for delivery.'}
         </p>
       )}
+      {checkError && <div className="alert">{checkError}</div>}
+      <button className="btn ghost block" disabled={checking} onClick={refreshPayment}>
+        {checking ? 'Checking…' : 'Check payment status'}
+      </button>
       <button className="btn ghost block" onClick={onReset}>
         Make another payment
       </button>
@@ -243,13 +271,18 @@ function LoginBox({ onLoggedIn }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [mfa, setMfa] = useState(false)
+  const [code, setCode] = useState('')
 
   async function submit(e) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await api('/admin/login/', { method: 'POST', body: { username, password } })
+      const result = await api(mfa ? '/admin/login/confirm/' : '/admin/login/', {
+        method: 'POST', body: mfa ? { username, code } : { username, password },
+      })
+      if (result.mfa_required) { setMfa(true); setPassword(''); return }
       onLoggedIn()
     } catch (err) {
       setError(err.message)
@@ -264,9 +297,9 @@ function LoginBox({ onLoggedIn }) {
       <form onSubmit={submit}>
         <label className="field">
           <span>Username</span>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          <input value={username} onChange={(e) => setUsername(e.target.value)} readOnly={mfa} autoFocus />
         </label>
-        <label className="field">
+        <label className="field" hidden={mfa}>
           <span>Password</span>
           <input
             type="password"
@@ -274,10 +307,14 @@ function LoginBox({ onLoggedIn }) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
+        {mfa && <label className="field"><span>Code sent to your administrator email</span>
+          <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={6} required />
+        </label>}
         {error && <div className="alert">{error}</div>}
         <button className="btn primary block" disabled={busy}>
-          {busy ? <Spinner /> : 'Sign in'}
+          {busy ? <Spinner /> : mfa ? 'Verify code' : 'Sign in'}
         </button>
+        {mfa && <button className="btn ghost block" type="button" onClick={() => { setMfa(false); setCode(''); setError(null) }}>Start sign-in again</button>}
       </form>
     </div>
   )
@@ -838,6 +875,9 @@ function PaymentsReport({ meta }) {
           <option value="successful">Successful</option>
           <option value="pending">Pending</option>
           <option value="failed">Failed</option>
+          <option value="refunded">Refunded</option>
+          <option value="reversed">Reversed</option>
+          <option value="disputed">Disputed</option>
         </select>
         <select
           value={filters.department}
@@ -891,11 +931,12 @@ function PaymentsReport({ meta }) {
               <td>
                 <Badge
                   tone={
-                    p.status === 'successful' ? 'green' : p.status === 'pending' ? 'orange' : 'red'
+                    p.status === 'successful' && p.allocation === 'applied' ? 'green' : p.status === 'pending' ? 'orange' : 'red'
                   }
                 >
                   {p.status}
                 </Badge>
+                {['duplicate', 'review'].includes(p.allocation) && <div>{p.allocation === 'duplicate' ? 'Additional charge — review required' : 'Review required'}</div>}
               </td>
               <td>
                 {p.receipt_url ? (
@@ -1005,7 +1046,7 @@ function SessionManager({ meta, reloadMeta }) {
 }
 
 function ReceiptChecker() {
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(new URLSearchParams(window.location.search).get('code') || '')
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -1084,7 +1125,7 @@ function ReceiptChecker() {
 
 function AdminDashboard({ meta, reloadMeta, onLoggedOut }) {
   const [stats, setStats] = useState(null)
-  const [adminTab, setAdminTab] = useState('overview') // 'overview' | 'departments' | 'fees' | 'payments' | 'session' | 'verify'
+  const [adminTab, setAdminTab] = useState(window.location.pathname === '/verify' ? 'verify' : 'overview')
 
   const loadStats = useCallback(
     () =>
@@ -1237,7 +1278,7 @@ function AdminView({ meta, reloadMeta }) {
 /* ---------------------------------- App ---------------------------------- */
 
 export default function App() {
-  const [tab, setTab] = useState('pay')
+  const [tab, setTab] = useState(new URLSearchParams(window.location.search).has('admin') || window.location.pathname === '/verify' ? 'admin' : 'pay')
   const [meta, setMeta] = useState(null)
   const [result, setResult] = useState(null)
   const handledRef = useRef(false)

@@ -44,7 +44,7 @@ def generate_receipt_pdf(payment):
         Spacer(1, 14),
         HRFlowable(width="100%", thickness=1.5, color=BRAND),
         Spacer(1, 10),
-        Paragraph("<b>OFFICIAL PAYMENT RECEIPT</b>", ParagraphStyle("ReceiptTitle", parent=center_style, fontSize=13)),
+        Paragraph("<b>TEST PAYMENT — NO REAL MONEY</b>" if payment.mode == "test" else "<b>OFFICIAL PAYMENT RECEIPT</b>", ParagraphStyle("ReceiptTitle", parent=center_style, fontSize=13)),
         Spacer(1, 12),
     ]
 
@@ -139,7 +139,7 @@ def generate_receipt_pdf(payment):
 
     story.append(
         Paragraph(
-            "This receipt was electronically generated and signed. Valid without physical stamp. "
+            "This receipt was electronically generated. Verify its current status against bursary records. "
             "Retain this receipt for departmental and faculty clearance.",
             ParagraphStyle("Footer", parent=center_style, fontSize=7.5, textColor=colors.grey),
         )

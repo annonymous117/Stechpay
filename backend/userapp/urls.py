@@ -10,6 +10,7 @@ urlpatterns = [
     path("payments/webhook/", views.paystack_webhook),
     path("payments/<str:reference>/receipt/", views.receipt_pdf),
     path("admin/login/", views.admin_login),
+    path("admin/login/confirm/", views.admin_login_confirm),
     path("admin/logout/", views.admin_logout),
     path("admin/me/", views.admin_me),
     path("admin/stats/", views.admin_stats),

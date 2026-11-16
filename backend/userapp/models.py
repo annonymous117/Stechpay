@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.utils import timezone
 
 from .constants import DEFAULT_DEPARTMENTS, LEVEL_CHOICES, session_label, session_start_year
 
@@ -29,7 +30,7 @@ class Department(models.Model):
         departments = list(cls.objects.filter(is_active=True))
         if not departments and not cls.objects.exists():
             for code, name in DEFAULT_DEPARTMENTS.items():
-                cls.objects.create(code=code, name=name, is_active=True)
+                cls.objects.get_or_create(code=code, defaults={"name": name, "is_active": True})
             departments = list(cls.objects.filter(is_active=True))
         return {d.code: d.name for d in departments}
 
@@ -93,6 +94,9 @@ class Payment(models.Model):
         PENDING = "pending", "Pending"
         SUCCESS = "successful", "Successful"
         FAILED = "failed", "Failed"
+        REFUNDED = "refunded", "Refunded"
+        REVERSED = "reversed", "Reversed"
+        DISPUTED = "disputed", "Disputed"
 
     full_name = models.CharField(max_length=120)
     email = models.EmailField()
@@ -110,11 +114,26 @@ class Payment(models.Model):
     paid_at = models.DateTimeField(null=True, blank=True)
     receipt_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
     email_sent = models.BooleanField(default=False)
+    mode = models.CharField(max_length=4, default="test", choices=[("test", "Test"), ("live", "Live")])
+    obligation = models.ForeignKey("PaymentObligation", null=True, on_delete=models.PROTECT, related_name="attempts")
+    owner_hash = models.CharField(max_length=64, blank=True)
+    idempotency_key = models.CharField(max_length=64, null=True, blank=True)
+    request_hash = models.CharField(max_length=64, blank=True)
+    provider_id = models.CharField(max_length=100, null=True, blank=True)
+    allocation = models.CharField(max_length=12, default="unallocated", choices=[
+        ("unallocated", "Unallocated"), ("applied", "Applied"), ("duplicate", "Duplicate charge"), ("review", "Needs review")])
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+    initialization_error = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner_hash", "idempotency_key"], name="unique_checkout_request"),
+            models.UniqueConstraint(fields=["mode", "provider_id"], name="unique_provider_payment"),
+            models.UniqueConstraint(fields=["obligation"], condition=models.Q(allocation="applied"), name="one_applied_payment"),
+        ]
 
     def __str__(self):
         return f"{self.matric_number} - {self.status} - NGN {self.amount}"
@@ -126,4 +145,72 @@ class Payment(models.Model):
     @property
     def department_display(self):
         return department_name(self.department_code)
+
+    @property
+    def receipt_available(self):
+        return self.status == self.Status.SUCCESS and self.allocation == "applied"
+
+
+class PaymentObligation(models.Model):
+    matric_number = models.CharField(max_length=20)
+    session_start = models.PositiveIntegerField()
+    mode = models.CharField(max_length=4)
+    fee_type = models.CharField(max_length=30, default="department_dues")
+    active_attempt = models.ForeignKey(Payment, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["matric_number", "session_start", "mode", "fee_type"], name="unique_dues_obligation")]
+
+
+class GatewayEvent(models.Model):
+    digest = models.CharField(max_length=64, unique=True)
+    event_type = models.CharField(max_length=80)
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    error = models.CharField(max_length=200, blank=True)
+
+
+class CheckoutRequest(models.Model):
+    owner_hash = models.CharField(max_length=64)
+    key = models.CharField(max_length=64)
+    request_hash = models.CharField(max_length=64)
+    payment = models.ForeignKey(Payment, on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['owner_hash', 'key'], name='unique_idempotency_key')]
+
+
+class Notification(models.Model):
+    payment = models.OneToOneField(Payment, on_delete=models.PROTECT)
+    attempts = models.PositiveIntegerField(default=0)
+    available_at = models.DateTimeField(default=timezone.now)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    error = models.CharField(max_length=200, blank=True)
+
+
+class LoginBucket(models.Model):
+    key = models.CharField(max_length=64, unique=True)
+    window_start = models.DateTimeField()
+    count = models.PositiveIntegerField(default=0)
+
+
+class LoginChallenge(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+    code_hash = models.CharField(max_length=64)
+    auth_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveIntegerField(default=0)
+    used = models.BooleanField(default=False)
+
+
+class AuditEntry(models.Model):
+    actor = models.ForeignKey('auth.User', null=True, on_delete=models.SET_NULL)
+    action = models.CharField(max_length=100)
+    target = models.CharField(max_length=100)
+    changes = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
 
