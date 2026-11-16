@@ -151,7 +151,8 @@ class SecurityTests(TestCase):
 
     def test_deployment_check_rejects_sqlite_and_allows_secure_test_staging(self):
         from .checks import deployment_checks
-        self.assertIn('userapp.E003', [issue.id for issue in deployment_checks(None)])
+        with patch.dict(settings.DATABASES['default'], ENGINE='django.db.backends.sqlite3'):
+            self.assertIn('userapp.E003', [issue.id for issue in deployment_checks(None)])
         with override_settings(APP_ENV='staging', DEBUG=False, ADMIN_MFA_REQUIRED=True, SECURE_SSL_REDIRECT=True,
             SESSION_COOKIE_SECURE=True, CSRF_COOKIE_SECURE=True, SECURE_HSTS_SECONDS=31536000,
             SECRET_KEY='security-check-only-0123456789-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJ',
