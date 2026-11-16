@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# The restricted SSH wrapper uses a private umask for its temporary script.
+# Installed packages, checked-out code and frontend assets must be service-readable.
+umask 022
 
 APP_DIR=/srv/stechpay
 TARGET_SHA=${1:?Pass the exact tested Git commit SHA}
@@ -25,6 +28,7 @@ npm run build
 
 cd "$APP_DIR/backend"
 "$APP_DIR/backend/.venv/bin/python" manage.py check --deploy --fail-level WARNING
+sudo -u www-data bash -c 'set -a; source /etc/stechpay.env; set +a; cd /srv/stechpay/backend; .venv/bin/python manage.py check --deploy --fail-level WARNING'
 BACKUP_DIR=${STECHPAY_BACKUP_DIR:?Set STECHPAY_BACKUP_DIR to a private PostgreSQL backup directory}
 test -d "$BACKUP_DIR" && test -w "$BACKUP_DIR"
 # Quiesce writers before the backup and schema changes. Never restore a database
@@ -44,8 +48,15 @@ umask 022
 sudo systemctl restart stechpay
 sudo nginx -t
 sudo systemctl reload nginx
-curl --fail --silent --show-error --retry 10 --retry-delay 2 --retry-connrefused \
-  --unix-socket /run/stechpay/gunicorn.sock -H 'X-Forwarded-Proto: https' \
-  http://localhost/api/csrf/ > /dev/null
+ready=false
+for attempt in {1..30}; do
+  if curl --fail --silent --max-time 5 --unix-socket /run/stechpay/gunicorn.sock \
+      -H 'X-Forwarded-Proto: https' http://localhost/api/csrf/ > /dev/null; then
+    ready=true
+    break
+  fi
+  sleep 1
+done
+$ready || { echo 'Application health check failed'; exit 1; }
 sudo systemctl enable --now stechpay-payments.timer
 echo "Deployed $TARGET_SHA; PostgreSQL backup: $BACKUP_FILE"

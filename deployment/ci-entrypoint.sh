@@ -25,4 +25,5 @@ trap 'rm -f "$deploy_script"' EXIT
 git show "$target_sha:deployment/deploy.sh" > "$deploy_script"
 # Reject the legacy script that lacks backup/configuration gates.
 grep -Fq 'STECHPAY_BACKUP_DIR' "$deploy_script"
+umask 022
 bash "$deploy_script" "$target_sha"
