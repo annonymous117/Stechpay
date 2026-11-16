@@ -20,6 +20,11 @@ $frontendCmd = "Set-Location '$frontendDir'; npm run dev"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontendCmd
 
+# Durable payment event and notification processing. The helper is hidden.
+$workerPython = if (Test-Path $pythonExe) { $pythonExe } else { 'python' }
+$workerProcess = Start-Process -FilePath $workerPython -ArgumentList @('manage.py', 'process_payments', '--watch') -WorkingDirectory $backendDir -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $backendDir 'worker.log') -RedirectStandardError (Join-Path $backendDir 'worker-error.log')
+Write-Host "Payment worker PID: $($workerProcess.Id). Logs: backend/worker.log" -ForegroundColor Yellow
+
 Write-Host ""
 Write-Host "Both servers are starting in separate windows:" -ForegroundColor Green
 Write-Host " - Backend:  http://127.0.0.1:8000/" -ForegroundColor Yellow

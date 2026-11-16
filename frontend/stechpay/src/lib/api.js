@@ -13,13 +13,15 @@ function flattenError(data, fallback) {
   return fallback
 }
 
+let csrfReady
 async function ensureCsrf() {
-  if (!getCookie('csrftoken')) {
-    await fetch('/api/csrf/', { credentials: 'same-origin' })
-  }
+  csrfReady ||= fetch('/api/csrf/', { credentials: 'same-origin' }).then((response) => {
+    if (!response.ok) throw new Error('Could not start a secure session. Refresh and try again.')
+  }).catch((error) => { csrfReady = null; throw error })
+  await csrfReady
 }
 
-export async function api(path, { method = 'GET', body } = {}) {
+export async function api(path, { method = 'GET', body, headers = {} } = {}) {
   await ensureCsrf()
   const response = await fetch(`/api${path}`, {
     method,
@@ -27,6 +29,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     headers: {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       'X-CSRFToken': getCookie('csrftoken') || '',
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   })

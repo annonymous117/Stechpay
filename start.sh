@@ -17,6 +17,15 @@ echo "========================================"
 ) &
 BACKEND_PID=$!
 
+# Run durable payment event processing and notification delivery.
+(
+  cd "$ROOT_DIR/backend"
+  if [ -f "appenv/bin/activate" ]; then source appenv/bin/activate; fi
+  if [ -f "appenv/Scripts/activate" ]; then source appenv/Scripts/activate; fi
+  python manage.py process_payments --watch
+) &
+WORKER_PID=$!
+
 # Launch Frontend
 (
   cd "$ROOT_DIR/frontend/stechpay"
@@ -28,5 +37,5 @@ echo "Backend PID: $BACKEND_PID (http://127.0.0.1:8000/)"
 echo "Frontend PID: $FRONTEND_PID (http://localhost:5173/)"
 echo "Press Ctrl+C to stop both servers."
 
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null" SIGINT SIGTERM EXIT
+trap "kill $BACKEND_PID $FRONTEND_PID $WORKER_PID 2>/dev/null" SIGINT SIGTERM EXIT
 wait

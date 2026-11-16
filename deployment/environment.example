@@ -1,0 +1,35 @@
+# Copy values into /etc/stechpay.env. Never commit real credentials.
+# Hosting with Paystack test payments is supported and is the current rollout mode.
+APP_ENV=staging
+DEBUG=False
+DJANGO_SECRET_KEY=REPLACE_WITH_A_UNIQUE_RANDOM_SECRET_OF_AT_LEAST_50_CHARACTERS
+ALLOWED_HOSTS=example.com
+FRONTEND_URL=https://example.com
+CSRF_TRUSTED_ORIGINS=https://example.com
+TRUSTED_PROXY_COUNT=1
+SECURE_SSL_REDIRECT=True
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+SECURE_HSTS_SECONDS=31536000
+PAYSTACK_MODE=test
+PAYSTACK_SECRET_KEY=REPLACE_WITH_YOUR_PAYSTACK_TEST_SECRET
+PAYSTACK_MOCK_MODE=False
+ALLOW_LIVE_PAYMENTS=False
+# Optional newer webhook signing secret(s), comma separated for rotation.
+PAYSTACK_WEBHOOK_SECRETS=
+POSTGRES_DB=stechpay
+POSTGRES_USER=stechpay
+POSTGRES_PASSWORD=REPLACE_WITH_DATABASE_PASSWORD
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+# Use verify-full and a trusted CA when connecting to a remote database.
+POSTGRES_SSLMODE=prefer
+STECHPAY_BACKUP_DIR=/var/backups/stechpay
+ADMIN_MFA_REQUIRED=True
+STECHPAY_EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+STECHPAY_EMAIL_HOST=smtp-relay.brevo.com
+STECHPAY_EMAIL_PORT=587
+STECHPAY_EMAIL_USERNAME=REPLACE_WITH_SMTP_USERNAME
+STECHPAY_EMAIL_PASSWORD=REPLACE_WITH_SMTP_PASSWORD
+STECHPAY_EMAIL_TLS=True
+DEFAULT_FROM_EMAIL=payments@example.com

@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconcile Stechpay payments every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=60s
+Unit=stechpay-payments.service
+
+[Install]
+WantedBy=timers.target
