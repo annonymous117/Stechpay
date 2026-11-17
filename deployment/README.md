@@ -73,6 +73,18 @@ backup was successfully restored into an isolated database. These are on-VM
 backups; establish off-VM storage and a retention policy separately. No automatic
 backup deletion is configured.
 
+For optional off-VM uploads, install `upload_backup.py` root-owned at
+`/usr/local/lib/stechpay/upload_backup.py` and OCI tooling separately under
+`/opt/stechpay-oci`. Set `STECHPAY_BACKUP_BUCKET`, `STECHPAY_BACKUP_NAMESPACE`
+and `STECHPAY_BACKUP_REGION` in root-only `/etc/stechpay-backup.env`; the backup
+unit loads that file if it exists. Configure a VM instance-principal policy
+limited to `OBJECT_CREATE` in the intended private bucket. Uploads use unique
+names, refuse overwrite, verify Oracle's checksum and save private upload
+receipts. A failed transfer retains the local archive and fails the job. The
+100 MiB per-archive limit is a guard for small/free-tier deployments; review
+capacity and retention before increasing it. Cloud retention and a downloaded
+archive restore drill are separate operating steps.
+
 ## Moving existing local test data to PostgreSQL
 
 Keep a verified SQLite backup first. Run the security migrations on SQLite, then
@@ -99,6 +111,36 @@ recover old receipts. Never use matric numbers or caller-supplied email as proof
 of ownership.
 
 ## Development and operations
+
+Administrator sign-in uses `/sign-in` followed by `/sign-in/verify`. The email
+code is bound to the server session, expires after five minutes, and permits at
+most five verification attempts. Resends have a 60-second cooldown and a cap of
+three; they replace the code without extending its expiry or resetting attempts.
+The existing account/IP sign-in rate limits also apply. Refreshing the code page
+reads the current challenge without sending another email.
+
+The Nginx example includes branded browser error pages and JSON API responses
+for proxy outages and request limiting. When updating an existing host, preserve
+its real server name and certificate paths, validate with `nginx -t`, then reload.
+The app deployment does not automatically replace the host's Nginx site file.
+
+Run browser regressions from `frontend/stechpay` using `npm test` after installing
+Chromium with `npx playwright install chromium`. They mock all API requests and
+never send emails or initiate real payments. Backup uploader checks run with
+`python deployment/test_backup_upload.py` from the repository root.
+
+For rolling cloud backup retention, create an enabled Object Storage lifecycle
+rule deleting objects with prefix `database/` after 30 days. This removes old
+snapshots, not live database records. The regional Object Storage service needs
+its own bucket-scoped lifecycle policy; keep the VM writer upload-only. Configure
+the lifecycle service in the tenancy root using the actual region and bucket:
+
+```text
+Allow service objectstorage-<region> to manage object-family in tenancy where all {target.bucket.name = '<backup-bucket>', any {request.permission = 'BUCKET_INSPECT', request.permission = 'BUCKET_READ', request.permission = 'OBJECT_INSPECT', request.permission = 'OBJECT_DELETE'}}
+```
+
+Preserve existing lifecycle rules. Review storage usage, backup job failures and
+restore readiness regularly. See [Oracle lifecycle permissions](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usinglifecyclepolicies.htm).
 
 The development launchers include the payment worker. For manual startup, use a
 separate process running `python manage.py process_payments --watch`. It calls the

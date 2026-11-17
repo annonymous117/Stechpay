@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 import os
 from pathlib import Path
 
+CSRF_FAILURE_VIEW = 'stechpay.errors.csrf_failure'
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -101,6 +103,7 @@ WSGI_APPLICATION = 'stechpay.wsgi.application'
 # DRF
 
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'stechpay.errors.api_exception_handler',
     'NUM_PROXIES': int(env('TRUSTED_PROXY_COUNT', '0')),
     'DEFAULT_PARSER_CLASSES': ['userapp.serializers.StrictJSONParser', 'rest_framework.parsers.FormParser'],
     'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],

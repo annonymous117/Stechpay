@@ -12,3 +12,6 @@ pg_dump --host "${POSTGRES_HOST:-localhost}" --port "${POSTGRES_PORT:-5432}" \
 pg_restore --list "$backup_file.partial" > /dev/null
 mv "$backup_file.partial" "$backup_file"
 echo "PostgreSQL backup completed: $backup_file"
+if [ -n "${STECHPAY_BACKUP_BUCKET:-}" ]; then
+    /opt/stechpay-oci/bin/python /usr/local/lib/stechpay/upload_backup.py "$backup_file"
+fi

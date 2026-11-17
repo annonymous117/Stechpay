@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, naira } from './lib/api'
 import logo from './assets/logo.png'
 import './App.css'
+import AuthFlow from './components/AuthFlow'
+import { navigate } from './lib/navigation'
+import ErrorPage, { NetworkNotice } from './components/ErrorPage'
 
 const MATRIC_RE = /^([A-Z]{2,5})\/(\d{2})\/(\d{2,6})$/
 
@@ -266,60 +269,6 @@ function ResultCard({ payment: initialPayment, onReset }) {
 
 /* ------------------------------- Admin view ------------------------------ */
 
-function LoginBox({ onLoggedIn }) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [mfa, setMfa] = useState(false)
-  const [code, setCode] = useState('')
-
-  async function submit(e) {
-    e.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      const result = await api(mfa ? '/admin/login/confirm/' : '/admin/login/', {
-        method: 'POST', body: mfa ? { username, code } : { username, password },
-      })
-      if (result.mfa_required) { setMfa(true); setPassword(''); return }
-      onLoggedIn()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="card login-card">
-      <h2>Admin Sign In</h2>
-      <form onSubmit={submit}>
-        <label className="field">
-          <span>Username</span>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} readOnly={mfa} autoFocus />
-        </label>
-        <label className="field" hidden={mfa}>
-          <span>Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-        {mfa && <label className="field"><span>Code sent to your administrator email</span>
-          <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={6} required />
-        </label>}
-        {error && <div className="alert">{error}</div>}
-        <button className="btn primary block" disabled={busy}>
-          {busy ? <Spinner /> : mfa ? 'Verify code' : 'Sign in'}
-        </button>
-        {mfa && <button className="btn ghost block" type="button" onClick={() => { setMfa(false); setCode(''); setError(null) }}>Start sign-in again</button>}
-      </form>
-    </div>
-  )
-}
-
 function StatCards({ stats }) {
   return (
     <div className="stat-grid">
@@ -431,8 +380,8 @@ function DepartmentsManager({ onChanged }) {
     try {
       const data = await api('/admin/departments/')
       setDepartments(data.departments)
-    } catch {
-      // ignore
+    } catch (err) {
+      setNotice(err.message)
     }
   }, [])
 
@@ -442,7 +391,7 @@ function DepartmentsManager({ onChanged }) {
       .then((data) => {
         if (!cancelled) setDepartments(data.departments)
       })
-      .catch(() => {})
+      .catch(err => { if (!cancelled) setNotice(err.message) })
     return () => {
       cancelled = true
     }
@@ -647,7 +596,7 @@ function FeesManager({ meta, onChanged }) {
       .then((data) => {
         if (!cancelled) setFees(data.fees)
       })
-      .catch(() => {})
+      .catch(err => { if (!cancelled) setNotice(err.message) })
     return () => {
       cancelled = true
     }
@@ -828,6 +777,8 @@ function FeesManager({ meta, onChanged }) {
 function PaymentsReport({ meta }) {
   const [filters, setFilters] = useState({ status: '', department: '', q: '' })
   const [rows, setRows] = useState(null)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
 
   const query = useMemo(() => {
     const params = new URLSearchParams()
@@ -842,20 +793,21 @@ function PaymentsReport({ meta }) {
     const timer = setTimeout(() => {
       api(`/admin/payments/${query ? `?${query}` : ''}`)
         .then((data) => {
-          if (!cancelled) setRows(data.payments)
+          if (!cancelled) { setRows(data.payments); setError('') }
         })
-        .catch(() => {})
+        .catch(err => { if (!cancelled) setError(err.message) })
     }, 250)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [query])
+  }, [query, reload])
 
   return (
     <section className="panel">
       <div className="panel-head">
         <h3>Payment Reports</h3>
+        {error && <div className="alert" role="alert">{error} <button className="btn ghost" onClick={() => setReload(value => value + 1)}>Retry</button></div>}
         <a className="btn ghost" href="/api/admin/payments/export/">
           Export CSV
         </a>
@@ -967,7 +919,7 @@ function SessionManager({ meta, reloadMeta }) {
         setInfo(data)
         setDraft(String(data.session_start))
       })
-      .catch(() => {})
+      .catch(err => { if (!cancelled) setNotice(err.message) })
     return () => {
       cancelled = true
     }
@@ -1125,14 +1077,16 @@ function ReceiptChecker() {
 
 function AdminDashboard({ meta, reloadMeta, onLoggedOut }) {
   const [stats, setStats] = useState(null)
+  const [loadError, setLoadError] = useState('')
   const [adminTab, setAdminTab] = useState(window.location.pathname === '/verify' ? 'verify' : 'overview')
 
   const loadStats = useCallback(
     () =>
       api('/admin/stats/')
-        .then(setStats)
+        .then(data => { setStats(data); setLoadError('') })
         .catch((err) => {
-          if (err?.status === 401 || err?.status === 403) onLoggedOut()
+          if (err?.status === 401 || err?.data?.code === 'session_expired') onLoggedOut()
+          else setLoadError(err.message)
         }),
     [onLoggedOut],
   )
@@ -1141,8 +1095,8 @@ function AdminDashboard({ meta, reloadMeta, onLoggedOut }) {
   }, [loadStats])
 
   async function logout() {
-    await api('/admin/logout/', { method: 'POST' }).catch(() => {})
-    onLoggedOut()
+    try { await api('/admin/logout/', { method: 'POST' }); onLoggedOut() }
+    catch (err) { setLoadError(err.message) }
   }
 
   const handleDataChanged = () => {
@@ -1159,6 +1113,7 @@ function AdminDashboard({ meta, reloadMeta, onLoggedOut }) {
         </button>
       </div>
 
+      {loadError && <div className="alert" role="alert">{loadError} <button className="btn ghost" onClick={loadStats}>Retry loading</button></div>}
       {stats && <StatCards stats={stats} />}
 
       <nav className="admin-nav">
@@ -1263,22 +1218,34 @@ function AdminDashboard({ meta, reloadMeta, onLoggedOut }) {
 
 function AdminView({ meta, reloadMeta }) {
   const [authed, setAuthed] = useState(null)
+  const [error, setError] = useState('')
+  const checkSession = useCallback(() => {
+    return api('/admin/me/').then(data => { setAuthed(Boolean(data.authenticated)); setError('') }).catch(err => setError(err.message))
+  }, [])
+  const loggedOut = useCallback(() => { setAuthed(false); navigate('/sign-in') }, [])
 
   useEffect(() => {
-    api('/admin/me/')
-      .then((data) => setAuthed(Boolean(data.authenticated)))
-      .catch(() => setAuthed(false))
-  }, [])
+    checkSession()
+  }, [checkSession])
 
+  if (error) return <ErrorPage message={error} onRetry={checkSession} />
   if (authed === null) return <Spinner />
-  if (!authed) return <LoginBox onLoggedIn={() => setAuthed(true)} />
-  return <AdminDashboard meta={meta} reloadMeta={reloadMeta} onLoggedOut={() => setAuthed(false)} />
+  if (!authed) return <AuthFlow key={window.location.pathname} onLoggedIn={() => setAuthed(true)} />
+  return <AdminDashboard meta={meta} reloadMeta={reloadMeta} onLoggedOut={loggedOut} />
 }
 
 /* ---------------------------------- App ---------------------------------- */
 
 export default function App() {
-  const [tab, setTab] = useState(new URLSearchParams(window.location.search).has('admin') || window.location.pathname === '/verify' ? 'admin' : 'pay')
+  const [location, setLocation] = useState(window.location.pathname + window.location.search)
+  const path = location.split('?')[0].replace(/\/$/, '') || '/'
+  const tab = new URLSearchParams(window.location.search).has('admin') || ['/verify', '/sign-in', '/sign-in/verify', '/dashboard'].includes(path) ? 'admin' : 'pay'
+  const knownPath = ['/', '/callback', '/verify', '/sign-in', '/sign-in/verify', '/dashboard'].includes(path)
+  useEffect(() => {
+    const update = () => setLocation(window.location.pathname + window.location.search)
+    window.addEventListener('popstate', update)
+    return () => window.removeEventListener('popstate', update)
+  }, [])
   const [meta, setMeta] = useState(null)
   const [result, setResult] = useState(null)
   const handledRef = useRef(false)
@@ -1294,16 +1261,16 @@ export default function App() {
   }, [loadMeta])
 
   useEffect(() => {
-    if (handledRef.current) return
-    handledRef.current = true
     const params = new URLSearchParams(window.location.search)
     const reference = params.get('reference')
-    if (!reference) return
-    history.replaceState(null, '', window.location.pathname)
+    if (!reference) { handledRef.current = null; return }
+    if (handledRef.current === location) return
+    handledRef.current = location
+    // Keep the reference in the URL so a refresh retries verification, never checkout.
     api('/payments/verify/', { method: 'POST', body: { reference } })
-      .then((data) => setResult({ payment: data.payment }))
-      .catch((err) => setResult({ error: err.message }))
-  }, [])
+      .then((data) => { if (handledRef.current === location) setResult({ payment: data.payment }) })
+      .catch((err) => { if (handledRef.current === location) setResult({ error: err.message }) })
+  }, [location])
 
   return (
     <div className="app">
@@ -1318,54 +1285,48 @@ export default function App() {
         <nav className="tabs">
           <button
             className={tab === 'pay' ? 'tab active' : 'tab'}
-            onClick={() => setTab('pay')}
+            onClick={() => { setResult(null); navigate('/') }}
           >
             Make Payment
           </button>
           <button
             className={tab === 'admin' ? 'tab active' : 'tab'}
-            onClick={() => setTab('admin')}
+            onClick={() => { setResult(null); navigate('/sign-in') }}
           >
             Admin Dashboard
           </button>
         </nav>
       </header>
 
+      <NetworkNotice />
       <main className="content">
-        {result?.payment && (
+        {!knownPath && <ErrorPage status="404" title="Page not found" message="This page may have moved. Return to home to continue." />}
+        {knownPath && result?.payment && (
           <ResultCard
             payment={result.payment}
-            onReset={() => setResult(null)}
+            onReset={() => { setResult(null); navigate('/') }}
           />
         )}
 
-        {!result?.payment && !result?.error && tab === 'pay' &&
-          (meta ? (
+        {knownPath && !result?.payment && !result?.error && tab === 'pay' &&
+          (meta && !new URLSearchParams(window.location.search).has('reference') ? (
             <PaymentForm meta={meta} onSuccess={(payment) => setResult({ payment })} />
           ) : (
             <Spinner />
           ))}
 
-        {!result?.payment && !result?.error && tab === 'admin' &&
+        {knownPath && !result?.payment && !result?.error && tab === 'admin' &&
           (meta ? <AdminView meta={meta} reloadMeta={loadMeta} /> : <Spinner />)}
 
-        {result?.error && (
-          <div className="card result-card bad">
-            <div className="result-icon">✕</div>
-            <h2>Unable to load application</h2>
-            <p className="muted">{result.error}</p>
-            <button
-              className="btn primary"
-              style={{ marginTop: '1rem' }}
-              onClick={() => {
-                setResult(null)
-                loadMeta()
-              }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
+        {knownPath && result?.error && <ErrorPage message={result.error} onRetry={() => {
+          const reference = new URLSearchParams(window.location.search).get('reference')
+          setResult(null)
+          if (reference) api('/payments/verify/', { method: 'POST', body: { reference } })
+            .then(data => setResult({ payment: data.payment }))
+            .catch(err => setResult({ error: err.message }))
+          else loadMeta()
+        }} />}
+
       </main>
 
       <footer className="footer muted">

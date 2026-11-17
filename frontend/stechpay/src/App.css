@@ -860,3 +860,11 @@ code.mono {
   padding-top: 8px;
 }
 
+.auth-card { max-width: 440px; margin: 2rem auto; }
+.auth-step { color: #64748b; font-size: .75rem; letter-spacing: .12em; font-weight: 700; }
+.auth-symbol { width: 56px; height: 56px; display: grid; place-items: center; background: #eaf2fa; color: #0f4c81; border-radius: 16px; font-size: 28px; margin: 1.5rem auto; }
+.auth-card > h2, .auth-card > p, .auth-step { text-align: center; }
+.otp-input { text-align: center; font-size: clamp(24px, 5vw, 32px) !important; letter-spacing: .35em; font-variant-numeric: tabular-nums; }
+.error-page { max-width: 520px; margin: 3rem auto; text-align: center; }
+.error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 24px; }
+.offline-notice { background: #fff4d6; color: #663e00; text-align: center; padding: 12px 20px; }

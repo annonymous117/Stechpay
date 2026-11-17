@@ -205,6 +205,8 @@ class LoginChallenge(models.Model):
     expires_at = models.DateTimeField()
     attempts = models.PositiveIntegerField(default=0)
     used = models.BooleanField(default=False)
+    sent_at = models.DateTimeField(default=timezone.now)
+    resend_count = models.PositiveIntegerField(default=0)
 
 
 class AuditEntry(models.Model):
