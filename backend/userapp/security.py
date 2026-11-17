@@ -1,18 +1,14 @@
 import hashlib
 import json
 import secrets
-from datetime import timedelta
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
 from django.http import HttpResponseRedirect, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.utils import timezone
-from django.utils.crypto import salted_hmac
 from rest_framework.permissions import BasePermission
 
-from .models import AuditEntry, LoginBucket, LoginChallenge
+from .models import AuditEntry, LoginChallenge
 
 OWNER_COOKIE = 'checkout_owner'
 OWNER_SALT = 'stechpay.checkout-owner.v1'
@@ -88,20 +84,17 @@ def login_limited(request):
             username = username.strip().casefold()
         except (ValueError, TypeError, AttributeError):
             username = ''
-    keys = [(f'ip:{client_ip(request)}', 20), (f'account:{username}', 5)]
-    now = timezone.now()
-    denied = False
-    with transaction.atomic():
-        for identity, limit in sorted(keys):
-            key = salted_hmac('login-limit', identity).hexdigest()
-            LoginBucket.objects.get_or_create(key=key, defaults={'window_start': now})
-            bucket = LoginBucket.objects.select_for_update().get(key=key)
-            if now - bucket.window_start >= timedelta(minutes=5):
-                bucket.window_start, bucket.count = now, 0
-            bucket.count += 1
-            bucket.save(update_fields=['count', 'window_start'])
-            denied = denied or bucket.count > limit
-    return denied
+    from .throttles import consume_limits
+    operation = 'password'
+    account_limit, ip_limit = 5, 20
+    if request.path.endswith('/confirm/'):
+        operation, account_limit, ip_limit = 'code', 20, 40
+    elif request.path.endswith('/challenge/'):
+        operation, account_limit, ip_limit = 'resend', 6, 20
+    return bool(consume_limits(f'login-{operation}', [
+        (f'ip:{client_ip(request)}', ip_limit, 300), (f'account:{username}', account_limit, 300),
+    ]))
+
 
 
 class SecurityBoundaryMiddleware:
@@ -116,9 +109,9 @@ class SecurityBoundaryMiddleware:
             if rejected:
                 return rejected
         if request.path == '/admin/login/':
-            return HttpResponseRedirect('/?admin=1')
+            return HttpResponseRedirect('/sign-in')
         if request.path.startswith('/admin/') and not admin_verified(request):
-            return HttpResponseRedirect('/?admin=1')
+            return HttpResponseRedirect('/sign-in')
         if request.path in ('/api/admin/login/', '/api/admin/login/confirm/', '/api/admin/login/challenge/') and request.method == 'POST':
             if login_limited(request):
                 response = JsonResponse({'detail': 'Too many sign-in attempts. Try again in five minutes.'}, status=429)

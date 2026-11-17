@@ -294,7 +294,7 @@ class SecurityTests(TestCase):
         self.assertIsNone(notice.sent_at)
         self.assertGreater(notice.available_at, timezone.now())
         self.assertTrue(send_payment_confirmation(payment))
-        self.assertNotIn('<a href=', mail.outbox[-1].alternatives[0].content)
+        self.assertNotIn('<a href="https://example.invalid">Link</a>', mail.outbox[-1].alternatives[0].content)
         self.assertIn('&lt;a href=', mail.outbox[-1].alternatives[0].content)
 
     def test_login_and_guest_checkout_require_csrf(self):

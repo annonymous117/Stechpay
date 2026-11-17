@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlencode
 from django.utils.html import escape
 
 from django.conf import settings
@@ -15,6 +16,7 @@ def send_payment_confirmation(payment):
     subject = f"{'[TEST] ' if payment.mode == 'test' else ''}Payment Successful - {payment.department_display} Dues ({session_label(payment.session_start)})"
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@stechpay.local")
     amount_line = f"NGN {payment.amount:,.2f}"
+    recovery_url = f"{settings.FRONTEND_URL.rstrip('/')}/receipts?{urlencode({'ref': payment.reference})}"
 
     text_body = (
         f"Dear {payment.full_name},\n\n"
@@ -27,7 +29,8 @@ def send_payment_confirmation(payment):
         f"Session:       {session_label(payment.session_start)}\n"
         f"Amount:        {amount_line}\n"
         f"Reference:     {payment.reference}\n\n"
-        f"You can download your PDF receipt on the portal.\n\n"
+        f"Retrieve your PDF receipt: {recovery_url}\n"
+        f"For your privacy, we will verify access with a code sent to this email.\n\n"
         f"Regards,\n{settings.INSTITUTION_NAME}"
     )
     html_body = f"""
@@ -48,7 +51,8 @@ def send_payment_confirmation(payment):
           <tr><td style="padding:6px;background:#eef4fa"><b>Amount</b></td><td style="padding:6px">{escape(amount_line)}</td></tr>
           <tr><td style="padding:6px;background:#eef4fa"><b>Reference</b></td><td style="padding:6px">{escape(payment.reference)}</td></tr>
         </table>
-        <p style="margin-top:16px">Download your PDF receipt from the portal and keep it safe.</p>
+        <p style="margin-top:16px"><a href="{escape(recovery_url)}">Retrieve your receipt</a></p>
+        <p>We will verify access with a code sent to this email. Keep your receipt for your records.</p>
         <p>Regards,<br>{escape(settings.INSTITUTION_NAME)}</p>
       </div>
     </div>

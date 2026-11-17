@@ -216,3 +216,20 @@ class AuditEntry(models.Model):
     changes = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
+
+class ReceiptRecovery(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference = models.CharField(max_length=100)
+    payment = models.ForeignKey(Payment, null=True, blank=True, on_delete=models.SET_NULL)
+    email_hash = models.CharField(max_length=64, blank=True)
+    code_hash = models.CharField(max_length=64, blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    requested_at = models.DateTimeField(default=timezone.now)
+    available_at = models.DateTimeField(default=timezone.now)
+    attempts = models.PositiveIntegerField(default=0)
+    resend_count = models.PositiveIntegerField(default=0)
+    delivery_attempts = models.PositiveIntegerField(default=0)
+    delivery_requested = models.BooleanField(default=True)
+    delivery_allowed = models.BooleanField(default=True)
+    used = models.BooleanField(default=False)
+

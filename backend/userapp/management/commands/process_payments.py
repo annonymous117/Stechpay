@@ -9,7 +9,8 @@ from django.db.models import Q, F
 from django.utils import timezone
 
 from userapp.emails import send_payment_confirmation
-from userapp.models import GatewayEvent, Notification, Payment, LoginBucket, LoginChallenge
+from userapp.models import GatewayEvent, Notification, Payment, LoginBucket, LoginChallenge, ReceiptRecovery
+from userapp.recovery import deliver_recovery
 from userapp.payments import process_event, reconcile, recover_initialization
 
 
@@ -60,6 +61,14 @@ class Command(BaseCommand):
     def run_once(self, options):
         limit = max(1, min(options['limit'], 500))
         errors = 0
+        if not options['skip_notifications']:
+            queued = ReceiptRecovery.objects.filter(delivery_requested=True, available_at__lte=timezone.now()).order_by('available_at')
+            for pk in queued.values_list('pk', flat=True)[:limit]:
+                try:
+                    if deliver_recovery(pk) is False:
+                        errors += 1
+                except Exception:
+                    errors += 1
         for event_id in GatewayEvent.objects.filter(processed_at__isnull=True).order_by('attempts', 'pk').values_list('pk', flat=True)[:limit]:
             try:
                 process_event(event_id)
@@ -91,4 +100,5 @@ class Command(BaseCommand):
                 errors += 1
         LoginBucket.objects.filter(window_start__lt=timezone.now() - timedelta(days=1)).delete()
         LoginChallenge.objects.filter(expires_at__lt=timezone.now() - timedelta(days=1)).delete()
+        ReceiptRecovery.objects.filter(expires_at__lt=timezone.now() - timedelta(days=1)).delete()
         self.stdout.write(f'Payment worker completed; items needing retry: {errors}')
