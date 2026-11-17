@@ -227,9 +227,18 @@ def paystack_webhook(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def receipt_pdf(request, reference):
+    from .recovery import has_receipt_grant
     payment = Payment.objects.filter(reference=reference).first()
-    if not payment or not can_read_payment(request, payment):
+    recovered = bool(payment and has_receipt_grant(request, payment))
+    if not payment or not (can_read_payment(request, payment) or recovered):
         return HttpResponse("Receipt not found.", status=404)
+    if recovered:
+        try:
+            payment = reconcile(payment)
+        except paystack.PaystackError:
+            return Response({'detail': 'Receipt verification is temporarily unavailable. Please try downloading again.'}, status=503)
+        except (IntegrityError, ValidationError):
+            return Response({'detail': 'This payment needs administrator review before a receipt can be issued.'}, status=409)
     if not payment.receipt_available:
         return HttpResponse("Receipt available only for confirmed, allocated payments.", status=403)
     response = HttpResponse(generate_receipt_pdf(payment), content_type="application/pdf")

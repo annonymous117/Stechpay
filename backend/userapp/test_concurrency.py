@@ -13,6 +13,7 @@ from django.test import Client, TransactionTestCase
 
 from .models import Department, Fee, Notification, Payment, PaymentObligation, SessionConfig
 from .payments import apply_verification
+from .throttles import consume_limits
 
 
 class ConcurrentPaymentTests(TransactionTestCase):
@@ -26,6 +27,18 @@ class ConcurrentPaymentTests(TransactionTestCase):
         client = Client()
         client.get('/api/csrf/')
         self.cookies = copy.deepcopy(client.cookies)
+
+    def test_shared_limit_cannot_be_exceeded_by_concurrent_workers(self):
+        barrier = threading.Barrier(8)
+        def consume(_):
+            try:
+                barrier.wait(timeout=10)
+                return consume_limits('concurrent-test', [('same-client', 3, 60)]) == 0
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(consume, range(8)))
+        self.assertEqual(sum(results), 3)
 
     def submit(self, key, data=None):
         try:

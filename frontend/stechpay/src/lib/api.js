@@ -70,3 +70,19 @@ export function naira(value) {
     maximumFractionDigits: 2,
   })}`
 }
+
+export async function downloadReceipt(path) {
+  if (!/^\/api\/payments\/[A-Za-z0-9_-]+\/receipt\/$/.test(path)) throw new Error('Invalid receipt link.')
+  const response = await request(path, { credentials: 'same-origin' })
+  if (!response.ok) {
+    const message = response.status >= 500 ? 'Receipt verification is temporarily unavailable. Please try downloading again.'
+      : 'This receipt is no longer available through this verification. Request a new code or contact the administration.'
+    throw new Error(message)
+  }
+  if (!response.headers.get('Content-Type')?.includes('application/pdf')) throw new Error('We couldn’t prepare the PDF. Please try again.')
+  const url = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url; link.download = 'STechPay-receipt.pdf'
+  document.body.appendChild(link); link.click(); link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30000)
+}

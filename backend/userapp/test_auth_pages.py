@@ -79,10 +79,12 @@ class AuthPageTests(TestCase):
 
     def test_confirm_cannot_bypass_account_limit_with_fake_username(self):
         self.start()
-        for i in range(4):
+        self.assertEqual(self.post('/api/admin/login/confirm/', {'username': 'first', 'code': 'bad'}).status_code, 400)
+        bucket_count = LoginBucket.objects.count()
+        for i in range(19):
             self.assertEqual(self.post('/api/admin/login/confirm/', {'username': str(i), 'code': 'bad'}).status_code, 400)
         self.assertEqual(self.post('/api/admin/login/confirm/', {'username': 'new', 'code': 'bad'}).status_code, 429)
-        self.assertEqual(LoginBucket.objects.count(), 2)
+        self.assertEqual(LoginBucket.objects.count(), bucket_count)
 
 
 @override_settings(DEBUG=False)

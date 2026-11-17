@@ -116,8 +116,32 @@ Administrator sign-in uses `/sign-in` followed by `/sign-in/verify`. The email
 code is bound to the server session, expires after five minutes, and permits at
 most five verification attempts. Resends have a 60-second cooldown and a cap of
 three; they replace the code without extending its expiry or resetting attempts.
-The existing account/IP sign-in rate limits also apply. Refreshing the code page
-reads the current challenge without sending another email.
+Password, code verification and resends have separate database-backed account/IP
+budgets per five minutes: 5/20, 20/40 and 6/20 respectively. The per-challenge code
+attempt limit and resend cooldown still apply. Refreshing the code page reads the
+current challenge without sending another email. Public navigation has no admin
+button; staff should bookmark `/sign-in`. Authorization still protects every
+admin endpoint, including Django's `/admin/` interface.
+
+Student receipt recovery starts at `/receipts`, followed by `/receipts/verify`.
+Confirmation emails link to the reference-prefilled recovery form. The request
+queues an email job without revealing whether the reference exists. The existing
+payment worker sends six-digit codes only to an eligible payment's recorded
+mailbox, normally on its next scheduled run. Challenges expire after ten minutes,
+allow five code attempts and three resends with a 60-second cooldown. A successful
+code grants receipt-only access in that browser for ten minutes; it does not
+authenticate a student/admin or grant access to other payments. Reprinting retains
+the original receipt number and re-verifies the payment with Paystack. If email
+access is unavailable, administration can help with recovery.
+
+General API throttling now uses atomic PostgreSQL counters shared across workers
+(default 120/minute per anonymous IP, 300/minute per authenticated user), in addition
+to Nginx limits. Recovery request/resend/confirmation budgets per IP are 10/10/30
+per ten minutes; email delivery is additionally capped at six requests per reference
+and eight delivery attempts per mailbox per hour. These limits include retries.
+Expired challenge/counter records are cleaned by the payment worker. Monitor that
+worker: failed recovery email sends retry up to three times. `--skip-notifications`
+also suppresses recovery email delivery.
 
 The Nginx example includes branded browser error pages and JSON API responses
 for proxy outages and request limiting. When updating an existing host, preserve

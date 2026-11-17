@@ -3,6 +3,7 @@ import { api, naira } from './lib/api'
 import logo from './assets/logo.png'
 import './App.css'
 import AuthFlow from './components/AuthFlow'
+import ReceiptRecovery from './components/ReceiptRecovery'
 import { navigate } from './lib/navigation'
 import ErrorPage, { NetworkNotice } from './components/ErrorPage'
 
@@ -1239,8 +1240,8 @@ function AdminView({ meta, reloadMeta }) {
 export default function App() {
   const [location, setLocation] = useState(window.location.pathname + window.location.search)
   const path = location.split('?')[0].replace(/\/$/, '') || '/'
-  const tab = new URLSearchParams(window.location.search).has('admin') || ['/verify', '/sign-in', '/sign-in/verify', '/dashboard'].includes(path) ? 'admin' : 'pay'
-  const knownPath = ['/', '/callback', '/verify', '/sign-in', '/sign-in/verify', '/dashboard'].includes(path)
+  const tab = new URLSearchParams(window.location.search).has('admin') || ['/verify', '/sign-in', '/sign-in/verify', '/dashboard'].includes(path) ? 'admin' : path.startsWith('/receipts') ? 'receipts' : 'pay'
+  const knownPath = ['/', '/callback', '/verify', '/sign-in', '/sign-in/verify', '/dashboard', '/receipts', '/receipts/verify'].includes(path)
   useEffect(() => {
     const update = () => setLocation(window.location.pathname + window.location.search)
     window.addEventListener('popstate', update)
@@ -1262,7 +1263,7 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const reference = params.get('reference')
+    const reference = ['/', '/callback'].includes(path) ? params.get('reference') : null
     if (!reference) { handledRef.current = null; return }
     if (handledRef.current === location) return
     handledRef.current = location
@@ -1270,7 +1271,7 @@ export default function App() {
     api('/payments/verify/', { method: 'POST', body: { reference } })
       .then((data) => { if (handledRef.current === location) setResult({ payment: data.payment }) })
       .catch((err) => { if (handledRef.current === location) setResult({ error: err.message }) })
-  }, [location])
+  }, [location, path])
 
   return (
     <div className="app">
@@ -1290,10 +1291,10 @@ export default function App() {
             Make Payment
           </button>
           <button
-            className={tab === 'admin' ? 'tab active' : 'tab'}
-            onClick={() => { setResult(null); navigate('/sign-in') }}
+            className={tab === 'receipts' ? 'tab active' : 'tab'}
+            onClick={() => { setResult(null); navigate('/receipts') }}
           >
-            Admin Dashboard
+            Retrieve Receipt
           </button>
         </nav>
       </header>
@@ -1301,6 +1302,7 @@ export default function App() {
       <NetworkNotice />
       <main className="content">
         {!knownPath && <ErrorPage status="404" title="Page not found" message="This page may have moved. Return to home to continue." />}
+        {knownPath && tab === 'receipts' && <ReceiptRecovery key={path} />}
         {knownPath && result?.payment && (
           <ResultCard
             payment={result.payment}
@@ -1318,7 +1320,7 @@ export default function App() {
         {knownPath && !result?.payment && !result?.error && tab === 'admin' &&
           (meta ? <AdminView meta={meta} reloadMeta={loadMeta} /> : <Spinner />)}
 
-        {knownPath && result?.error && <ErrorPage message={result.error} onRetry={() => {
+        {knownPath && tab !== 'receipts' && result?.error && <ErrorPage message={result.error} onRetry={() => {
           const reference = new URLSearchParams(window.location.search).get('reference')
           setResult(null)
           if (reference) api('/payments/verify/', { method: 'POST', body: { reference } })

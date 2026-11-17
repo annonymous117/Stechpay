@@ -1,10 +1,13 @@
 from django.urls import path
 
-from . import views
+from . import views, recovery
 
 urlpatterns = [
     path("csrf/", views.csrf_view),
     path("meta/", views.meta_view),
+    path("receipts/recovery/", recovery.recovery_request),
+    path("receipts/recovery/challenge/", recovery.recovery_challenge),
+    path("receipts/recovery/confirm/", recovery.recovery_confirm),
     path("payments/initiate/", views.initiate_payment),
     path("payments/verify/", views.verify_payment),
     path("payments/webhook/", views.paystack_webhook),

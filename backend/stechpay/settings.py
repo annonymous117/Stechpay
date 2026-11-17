@@ -114,13 +114,11 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny',
     ],
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
+        'userapp.throttles.SharedAPIThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': env('THROTTLE_ANON_RATE', '120/minute'),
         'user': env('THROTTLE_USER_RATE', '300/minute'),
-        'login': env('THROTTLE_LOGIN_RATE', '5/minute'),
     },
 }
 
