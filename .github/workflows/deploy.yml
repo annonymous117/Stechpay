@@ -43,6 +43,7 @@ jobs:
           pip-audit -r backend/requirements.txt --no-deps --disable-pip
           bandit -r backend/stechpay backend/userapp -x backend/stechpay/test_settings.py,backend/userapp/tests.py,backend/userapp/test_security.py,backend/userapp/test_concurrency.py -ll
           python security-audit/check_secrets.py
+          python deployment/test_backup_upload.py
       - name: Backend regression and concurrency tests
         working-directory: backend
         env:
@@ -66,6 +67,12 @@ jobs:
           npm audit --audit-level=moderate
           npm run lint
           npm run build
+      - name: Browser flow regression tests
+        if: matrix.database == 'sqlite'
+        working-directory: frontend/stechpay
+        run: |
+          npx playwright install --with-deps chromium
+          npm test
 
   deploy:
     timeout-minutes: 20

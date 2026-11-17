@@ -261,6 +261,8 @@ def admin_login(request):
             challenge.used = True
             challenge.save(update_fields=["used"])
             return Response({"detail": "Could not deliver the sign-in code. Try again later."}, status=503)
+        LoginChallenge.objects.filter(user=user, used=False).exclude(pk=challenge.pk).update(used=True)
+        request.session.cycle_key()
         request.session["login_challenge"] = str(challenge.pk)
         return Response({"mfa_required": True})
     login(request, user)
@@ -277,11 +279,11 @@ def admin_login_confirm(request):
     try:
         challenge_id = uuid.UUID(request.session.get("login_challenge", ""))
     except ValueError:
-        return Response({"detail": "Start sign-in again."}, status=400)
+        return Response({"detail": "Start sign-in again.", "code": "challenge_expired"}, status=400)
     with transaction.atomic():
         challenge = LoginChallenge.objects.select_for_update().filter(pk=challenge_id).first()
         if not challenge or challenge.used or challenge.expires_at <= timezone.now() or challenge.attempts >= 5:
-            return Response({"detail": "Code expired. Start sign-in again."}, status=400)
+            return Response({"detail": "Code expired. Start sign-in again.", "code": "challenge_expired"}, status=400)
         challenge.attempts += 1
         user = challenge.user
         valid = (len(code) == 6 and code.isdigit() and user.is_active and user.is_staff and
@@ -296,6 +298,40 @@ def admin_login_confirm(request):
     request.session["admin_mfa_user"] = user.pk
     audit(request, "admin.login", user.pk)
     return Response({"username": user.username, "is_staff": True})
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+@throttle_classes([])
+def admin_login_challenge(request):
+    """Read or resend only the challenge bound to this browser session."""
+    try:
+        challenge_id = uuid.UUID(request.session.get("login_challenge", ""))
+    except (ValueError, TypeError, AttributeError):
+        return Response({"detail": "Start sign-in again.", "code": "challenge_expired"}, status=400)
+    with transaction.atomic():
+        challenge = LoginChallenge.objects.select_for_update().select_related('user').filter(pk=challenge_id).first()
+        now = timezone.now()
+        if (not challenge or challenge.used or challenge.expires_at <= now or challenge.attempts >= 5
+                or not challenge.user.is_active or not challenge.user.is_staff
+                or not secrets.compare_digest(challenge.auth_hash, challenge.user.get_session_auth_hash())):
+            return Response({"detail": "Code expired. Start sign-in again.", "code": "challenge_expired"}, status=400)
+        if request.method == 'POST':
+            if challenge.resend_count >= 3 or now < challenge.sent_at + timedelta(seconds=60):
+                return Response({"detail": "Please wait before requesting another code."}, status=429)
+            code = f"{secrets.randbelow(1000000):06d}"
+            try:
+                send_mail("Stechpay sign-in code", f"Your new sign-in code is {code}. It expires at {challenge.expires_at:%H:%M UTC}.",
+                          settings.DEFAULT_FROM_EMAIL, [challenge.user.email])
+            except Exception:
+                return Response({"detail": "Could not deliver the code. Please try again."}, status=503)
+            challenge.code_hash = salted_hmac("admin-otp", code).hexdigest()
+            challenge.sent_at = now
+            challenge.resend_count += 1
+            challenge.save(update_fields=['code_hash', 'sent_at', 'resend_count'])
+        return Response({"expires_at": challenge.expires_at.isoformat(),
+                         "resend_at": (challenge.sent_at + timedelta(seconds=60)).isoformat(),
+                         "resends_remaining": 3 - challenge.resend_count})
 
 
 @api_view(["POST"])

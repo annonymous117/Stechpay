@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from rest_framework.permissions import BasePermission
 
-from .models import AuditEntry, LoginBucket
+from .models import AuditEntry, LoginBucket, LoginChallenge
 
 OWNER_COOKIE = 'checkout_owner'
 OWNER_SALT = 'stechpay.checkout-owner.v1'
@@ -80,6 +80,14 @@ def login_limited(request):
         username = str(data.get('username', '')).strip().casefold()[:150]
     except (ValueError, AttributeError):
         username = ''
+    if request.path != '/api/admin/login/':
+        import uuid
+        try:
+            challenge_id = uuid.UUID(request.session.get('login_challenge', ''))
+            username = LoginChallenge.objects.filter(pk=challenge_id).values_list('user__username', flat=True).first() or ''
+            username = username.strip().casefold()
+        except (ValueError, TypeError, AttributeError):
+            username = ''
     keys = [(f'ip:{client_ip(request)}', 20), (f'account:{username}', 5)]
     now = timezone.now()
     denied = False
@@ -111,7 +119,7 @@ class SecurityBoundaryMiddleware:
             return HttpResponseRedirect('/?admin=1')
         if request.path.startswith('/admin/') and not admin_verified(request):
             return HttpResponseRedirect('/?admin=1')
-        if request.path in ('/api/admin/login/', '/api/admin/login/confirm/') and request.method == 'POST':
+        if request.path in ('/api/admin/login/', '/api/admin/login/confirm/', '/api/admin/login/challenge/') and request.method == 'POST':
             if login_limited(request):
                 response = JsonResponse({'detail': 'Too many sign-in attempts. Try again in five minutes.'}, status=429)
                 response['Retry-After'] = '300'

@@ -14,8 +14,18 @@ function flattenError(data, fallback) {
 }
 
 let csrfReady
+async function request(url, options) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 25000)
+  try { return await fetch(url, { ...options, signal: controller.signal }) }
+  catch (cause) {
+    throw new Error(cause.name === 'AbortError'
+      ? 'The request took too long. Please try again. If you were paying, check the existing payment before starting another.'
+      : 'We couldn’t reach STechPay. Check your connection and try again.')
+  } finally { clearTimeout(timer) }
+}
 async function ensureCsrf() {
-  csrfReady ||= fetch('/api/csrf/', { credentials: 'same-origin' }).then((response) => {
+  csrfReady ||= request('/api/csrf/', { credentials: 'same-origin' }).then((response) => {
     if (!response.ok) throw new Error('Could not start a secure session. Refresh and try again.')
   }).catch((error) => { csrfReady = null; throw error })
   await csrfReady
@@ -23,7 +33,7 @@ async function ensureCsrf() {
 
 export async function api(path, { method = 'GET', body, headers = {} } = {}) {
   await ensureCsrf()
-  const response = await fetch(`/api${path}`, {
+  const response = await request(`/api${path}`, {
     method,
     credentials: 'same-origin',
     headers: {
@@ -38,10 +48,14 @@ export async function api(path, { method = 'GET', body, headers = {} } = {}) {
   try {
     data = await response.json()
   } catch {
-    data = {}
+    if (response.ok) throw new Error('STechPay returned an unexpected response. Please try again shortly.')
   }
   if (!response.ok) {
-    const error = new Error(flattenError(data, response.statusText || 'Request failed'))
+    const fallback = response.status === 403 ? 'Your session may have expired, or you do not have access. Please sign in again.'
+      : response.status === 404 ? 'The requested item could not be found.'
+      : response.status === 429 ? 'Too many requests. Please wait a moment and try again.' : 'We couldn’t complete the request. Please try again.'
+    const error = new Error(response.status >= 500 ? 'STechPay is temporarily unavailable. Please try again shortly.' : flattenError(data, fallback))
+    if (data.code === 'csrf_failed') csrfReady = null
     error.status = response.status
     error.data = data
     throw error
