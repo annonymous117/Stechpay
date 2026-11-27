@@ -179,6 +179,10 @@ does not issue a paid receipt. Perform any refund through the authorized Paystac
 workflow, then allow its authenticated event to update the local record. There is
 no automatic refund operation in this application.
 
+For real-money activation, follow the [live payment rollout](LIVE_PAYMENTS.md).
+It covers Direct Entry matric numbers, separate departmental live subaccounts,
+technical preflight, policies, settlement checks and the controlled pilot.
+
 Grant receipt reviewers `userapp.view_payment`. Grant bursary managers the needed
 view/change/delete permissions for Fee, Department and SessionConfig as appropriate,
 plus payment viewing. Merely setting `is_staff` no longer grants settlement-editing

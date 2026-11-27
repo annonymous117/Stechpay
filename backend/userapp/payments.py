@@ -176,7 +176,10 @@ def process_event(event_id):
         if name == 'charge.success' and payment:
             if data.get('status') != 'success':
                 raise ValidationError('Invalid success event.')
-            apply_verification(payment, data)
+            _validate(payment, data)
+            # Treat the signed event as a trigger; fetch current gateway state before
+            # issuing a receipt. An API failure leaves the durable event for retry.
+            reconcile(payment)
         elif name.startswith(('refund.', 'charge.dispute.')):
             if not payment:
                 raise ValidationError('Financial event needs transaction reconciliation.')

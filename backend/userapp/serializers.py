@@ -35,6 +35,7 @@ class DepartmentSerializer(serializers.Serializer):
     code = serializers.RegexField(r'^[A-Z]{2,5}$')
     name = serializers.CharField(min_length=3, max_length=100)
     subaccount_code = serializers.RegexField(r'^(ACCT_[A-Za-z0-9]+)?$', max_length=100, allow_blank=True, default='')
+    live_subaccount_code = serializers.RegexField(r'^(ACCT_[A-Za-z0-9]+)?$', max_length=100, allow_blank=True, default='')
     is_active = serializers.BooleanField(default=True)
 
 

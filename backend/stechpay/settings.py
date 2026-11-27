@@ -215,6 +215,7 @@ PAYSTACK_PUBLIC_KEY = env('PAYSTACK_PUBLIC_KEY')
 PAYSTACK_MOCK_MODE = env('PAYSTACK_MOCK_MODE', 'False').lower() in ('true', '1', 'yes')
 PAYSTACK_MODE = env('PAYSTACK_MODE', 'test')
 ALLOW_LIVE_PAYMENTS = env('ALLOW_LIVE_PAYMENTS', 'False').lower() in ('true', '1', 'yes')
+PAYMENT_CHECKOUT_ENABLED = env('PAYMENT_CHECKOUT_ENABLED', 'True').lower() in ('true', '1', 'yes')
 PAYSTACK_WEBHOOK_SECRETS = [s.strip() for s in env('PAYSTACK_WEBHOOK_SECRETS').split(',') if s.strip()]
 ADMIN_MFA_REQUIRED = env('ADMIN_MFA_REQUIRED', str(not DEBUG)).lower() in ('true', '1', 'yes')
 DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024

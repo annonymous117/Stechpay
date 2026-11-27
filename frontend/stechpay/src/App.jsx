@@ -7,16 +7,16 @@ import ReceiptRecovery from './components/ReceiptRecovery'
 import { navigate } from './lib/navigation'
 import ErrorPage, { NetworkNotice } from './components/ErrorPage'
 
-const MATRIC_RE = /^([A-Z]{2,5})\/(\d{2})\/(\d{2,6})$/
+const MATRIC_RE = /^([A-Z]{2,5})\/(?:(DE)\/)?(\d{2})\/(\d{2,6})$/
 
 function parseMatric(raw, sessionStart) {
   const value = String(raw || '').toUpperCase().replace(/[\s-]+/g, '')
   const match = value.match(MATRIC_RE)
   if (!match || !sessionStart) return null
-  const entryYear = 2000 + parseInt(match[2], 10)
+  const entryYear = 2000 + parseInt(match[3], 10)
   if (entryYear > sessionStart) return null
-  // Academic level: 1st year (entryYear == sessionStart) is 100L, 2nd year is 200L, etc.
-  const level = Math.min(Math.max((sessionStart - entryYear + 1) * 100, 100), 500)
+  const entryLevel = match[2] ? 200 : 100
+  const level = Math.min(Math.max(entryLevel + (sessionStart - entryYear) * 100, 100), 500)
   return { department: match[1], level, normalized: value }
 }
 
@@ -51,7 +51,7 @@ function PaymentForm({ meta, onSuccess }) {
     setBanner(null)
     if (!parsed || !knownDept) {
       setErrors({
-        matric_number: 'Enter a valid matric number like STA/24/020 or CSC/26/001.',
+        matric_number: 'Enter a valid matric number like STA/24/020 or STA/DE/25/020.',
       })
       return
     }
@@ -111,6 +111,10 @@ function PaymentForm({ meta, onSuccess }) {
         </div>
       )}
 
+      {meta.checkout_enabled === false && (
+        <div className="alert">New payments are temporarily paused. You can still retrieve a receipt for an existing payment.</div>
+      )}
+
       <form onSubmit={handleSubmit} noValidate>
         <label className="field">
           <span>Full name</span>
@@ -150,7 +154,7 @@ function PaymentForm({ meta, onSuccess }) {
             <em className="field-error">{errors.matric_number}</em>
           )}
           {!errors.matric_number && form.matric_number && !parsed && (
-            <em className="hint">Format: DEPT/YY/NNN — e.g. CSC/25/014, ICH/24/001</em>
+            <em className="hint">Format: DEPT/YY/NNN or DEPT/DE/YY/NNN for Direct Entry.</em>
           )}
         </label>
 
@@ -191,7 +195,7 @@ function PaymentForm({ meta, onSuccess }) {
 
         {banner && <div className="alert">{banner}</div>}
 
-        <button className="btn primary block" disabled={submitting} type="submit">
+        <button className="btn primary block" disabled={submitting || meta.checkout_enabled === false} type="submit">
           {submitting ? <Spinner /> : `Pay ${feeAmount ? naira(feeAmount) : ''} with Paystack`}
         </button>
         <p className="fine-print muted">Secured by Paystack · Official PDF Receipt with QR verification</p>
@@ -372,7 +376,7 @@ function DepartmentRevenueChart({ chartData }) {
 /* Department & Course Management */
 function DepartmentsManager({ onChanged }) {
   const [departments, setDepartments] = useState([])
-  const [draft, setDraft] = useState({ code: '', name: '', subaccount_code: '' })
+  const [draft, setDraft] = useState({ code: '', name: '', subaccount_code: '', live_subaccount_code: '' })
   const [edits, setEdits] = useState({})
   const [notice, setNotice] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -410,9 +414,10 @@ function DepartmentsManager({ onChanged }) {
           code: draft.code.trim().toUpperCase(),
           name: draft.name.trim(),
           subaccount_code: draft.subaccount_code.trim(),
+          live_subaccount_code: draft.live_subaccount_code.trim(),
         },
       })
-      setDraft({ code: '', name: '', subaccount_code: '' })
+      setDraft({ code: '', name: '', subaccount_code: '', live_subaccount_code: '' })
       setNotice(`Department ${draft.code.toUpperCase()} created successfully.`)
       await load()
       onChanged()
@@ -462,7 +467,7 @@ function DepartmentsManager({ onChanged }) {
         <div>
           <h3>Departments &amp; Paystack Accounts</h3>
           <p className="muted">
-            Add new courses and assign department-specific Paystack Subaccounts to route funds directly.
+            Assign separate test and live Paystack subaccounts. Live payments require a live subaccount for the department. Confirm its bank account, split percentage and fee bearer in Paystack before collecting money.
           </p>
         </div>
       </div>
@@ -485,9 +490,17 @@ function DepartmentsManager({ onChanged }) {
         />
         <input
           type="text"
-          placeholder="Paystack Subaccount (e.g. ACCT_xxxxxxxxx)"
+          aria-label="Test subaccount for new department"
+          placeholder="Test subaccount (ACCT_...)"
           value={draft.subaccount_code}
           onChange={(e) => setDraft({ ...draft, subaccount_code: e.target.value })}
+        />
+        <input
+          type="text"
+          aria-label="Live subaccount for new department"
+          placeholder="Live subaccount (ACCT_...)"
+          value={draft.live_subaccount_code}
+          onChange={(e) => setDraft({ ...draft, live_subaccount_code: e.target.value })}
         />
         <button className="btn primary" disabled={busy} type="submit">
           Add Department
@@ -501,7 +514,8 @@ function DepartmentsManager({ onChanged }) {
           <tr>
             <th>Code</th>
             <th>Department / Course Name</th>
-            <th>Paystack Subaccount (Split Payout)</th>
+            <th>Test subaccount</th>
+            <th>Live subaccount</th>
             <th>Active</th>
             <th></th>
           </tr>
@@ -532,7 +546,8 @@ function DepartmentsManager({ onChanged }) {
                   <input
                     className="inline-input mono"
                     type="text"
-                    placeholder="None (Main Account)"
+                    aria-label={`${d.code} test subaccount`}
+                    placeholder="None (test main account)"
                     value={
                       edit.subaccount_code !== undefined
                         ? edit.subaccount_code
@@ -544,6 +559,19 @@ function DepartmentsManager({ onChanged }) {
                         [d.id]: { ...prev[d.id], subaccount_code: e.target.value },
                       }))
                     }
+                  />
+                </td>
+                <td>
+                  <input
+                    className="inline-input mono"
+                    type="text"
+                    aria-label={`${d.code} live subaccount`}
+                    placeholder="Required for live payments"
+                    value={edit.live_subaccount_code !== undefined ? edit.live_subaccount_code : (d.live_subaccount_code || '')}
+                    onChange={(e) => setEdits((prev) => ({
+                      ...prev,
+                      [d.id]: { ...prev[d.id], live_subaccount_code: e.target.value },
+                    }))}
                   />
                 </td>
                 <td>
@@ -963,8 +991,8 @@ function SessionManager({ meta, reloadMeta }) {
       <h3>Active Session</h3>
       <p className="muted">
         Controls the session shown to students and how their level is derived from
-        matric numbers. Pin it manually when your session starts on a different
-        month (e.g. November).
+        matric numbers. Set the school’s confirmed session before collecting live
+        payments. Returning to automatic mode pauses new live checkouts.
       </p>
       <div className="session-row">
         <strong>{meta.session}</strong>
@@ -1049,7 +1077,7 @@ function ReceiptChecker() {
 
       {result?.valid && p && (
         <div className="receipt-result ok">
-          <Badge tone="green">Valid receipt — payment confirmed</Badge>
+          <Badge tone={p.mode === 'test' ? 'orange' : 'green'}>{p.mode === 'test' ? 'Test receipt — no real money collected' : 'Valid receipt — payment confirmed'}</Badge>
           <dl className="detail-list">
             {[
               ['Student', p.full_name],

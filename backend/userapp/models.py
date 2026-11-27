@@ -12,7 +12,11 @@ class Department(models.Model):
     subaccount_code = models.CharField(
         max_length=100,
         blank=True,
-        help_text="Paystack Subaccount code (e.g. ACCT_xxxxxxxxx) to route department dues directly.",
+        help_text="Test-mode Paystack subaccount. Never used for live payments.",
+    )
+    live_subaccount_code = models.CharField(
+        max_length=100, blank=True,
+        help_text="Live-mode Paystack subaccount. Required for live departmental payments.",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
