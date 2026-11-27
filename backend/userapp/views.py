@@ -128,6 +128,7 @@ def meta_view(request):
             "fee_map": {f"{d}/{l}": a for (d, l), a in fee_map.items()},
             "paystack_mock_mode": False,
             "payment_mode": settings.PAYSTACK_MODE,
+            "checkout_enabled": settings.PAYMENT_CHECKOUT_ENABLED,
         }
     )
 
@@ -149,6 +150,8 @@ def _get_fee_or_error(department_code, level):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def initiate_payment(request):
+    if not settings.PAYMENT_CHECKOUT_ENABLED:
+        return Response({"detail": "New payments are temporarily paused. Existing payments can still be verified and receipts retrieved."}, status=503)
     serializer = CheckoutSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     data = dict(serializer.validated_data)
@@ -165,7 +168,13 @@ def initiate_payment(request):
     fee = _get_fee_or_error(parsed["department_code"], parsed["level"])
     dept = Department.objects.get(code=parsed["department_code"], is_active=True)
     try:
-        payment, created = reserve_checkout(data, parsed, fee, SessionConfig.active_start(), owner, key, dept.subaccount_code.strip())
+        mode = paystack.configured_mode()
+        if mode == 'live' and not SessionConfig.is_manual():
+            return Response({"detail": "The academic session must be confirmed by the administrator before live payments can start."}, status=503)
+        subaccount = (dept.live_subaccount_code if mode == 'live' else dept.subaccount_code).strip()
+        if mode == 'live' and not subaccount:
+            return Response({"detail": "Live payments are not yet available for this department. Contact the departmental coordinator."}, status=503)
+        payment, created = reserve_checkout(data, parsed, fee, SessionConfig.active_start(), owner, key, subaccount)
         if not created:
             if payment.status != Payment.Status.PENDING:
                 return Response({"already_paid": payment.receipt_available, "payment": _payment_summary(payment)})
@@ -510,6 +519,7 @@ def _department_json(d):
         "code": d.code,
         "name": d.name,
         "subaccount_code": d.subaccount_code,
+        "live_subaccount_code": d.live_subaccount_code,
         "is_active": d.is_active,
     }
 
@@ -639,6 +649,13 @@ def admin_receipt_verify(request):
         return Response(
             {"valid": False, "reason": "No receipt found for that number. Treat as unverified until proven otherwise."}
         )
+    if payment.mode != settings.PAYSTACK_MODE:
+        return Response({"valid": False, "reason": "This receipt belongs to a different payment mode. Test receipts cannot prove real payment."})
+    if payment.receipt_available:
+        try:
+            payment = reconcile(payment)
+        except (paystack.PaystackError, IntegrityError, ValidationError):
+            return Response({"detail": "The payment could not be confirmed with Paystack. Try again before accepting this receipt."}, status=503)
     if not payment.receipt_available:
         return Response(
             {

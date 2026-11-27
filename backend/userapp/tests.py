@@ -183,7 +183,8 @@ class StechpayTests(TestCase):
                 HTTP_X_PAYSTACK_SIGNATURE=signature,
             )
             self.assertEqual(resp.status_code, 200)
-            process_event(GatewayEvent.objects.get().pk)
+            with patch('userapp.paystack.verify_transaction', return_value={'raw': webhook_payload['data']}):
+                process_event(GatewayEvent.objects.get().pk)
 
         payment.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.SUCCESS)

@@ -144,6 +144,7 @@ class SecurityTests(TestCase):
         first = self.checkout()
         apply_verification(first, self.raw(first))
         self.key = str(uuid.uuid4())
+        Department.objects.filter(code='CSC').update(live_subaccount_code='ACCT_live')
         with patch('userapp.paystack.configured_mode', return_value='live'):
             second = self.checkout()
         self.assertEqual(second.mode, 'live')
@@ -232,8 +233,10 @@ class SecurityTests(TestCase):
         self.assertEqual(GatewayEvent.objects.count(), 1)
         self.assertFalse(mail.outbox)
         event = GatewayEvent.objects.get()
-        process_event(event.pk)
-        process_event(event.pk)
+        with patch('userapp.paystack.verify_transaction', return_value={'raw': self.raw(payment)}) as verify:
+            process_event(event.pk)
+            process_event(event.pk)
+        verify.assert_called_once_with(payment.reference)
         self.assertEqual(Notification.objects.count(), 1)
         self.assertFalse(mail.outbox)
         deliver_notification(Notification.objects.get().pk)

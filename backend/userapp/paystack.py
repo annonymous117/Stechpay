@@ -85,6 +85,17 @@ def verify_transaction(reference):
     return {"status": data.get("status", "pending"), "raw": data}
 
 
+def verify_live_subaccount(code):
+    """Read-only rollout check. Never disclose bank or contact details in logs."""
+    if configured_mode() != 'live' or not re.fullmatch(r'ACCT_[A-Za-z0-9]+', code or ''):
+        raise PaystackError('A live credential and valid subaccount code are required.')
+    data = _request('GET', '/subaccount/' + code)
+    if (data.get('subaccount_code') != code or data.get('domain') != 'live'
+            or data.get('currency') != 'NGN' or data.get('active') not in (True, 1)):
+        raise PaystackError('Subaccount must be active, use NGN and belong to this live integration.')
+    return data
+
+
 def valid_webhook(body, headers):
     try:
         configured_mode()

@@ -15,6 +15,8 @@ PAYSTACK_MODE=test
 PAYSTACK_SECRET_KEY=REPLACE_WITH_YOUR_PAYSTACK_TEST_SECRET
 PAYSTACK_MOCK_MODE=False
 ALLOW_LIVE_PAYMENTS=False
+# Emergency pause for NEW checkouts only. Keep live verification/webhooks running.
+PAYMENT_CHECKOUT_ENABLED=True
 # Optional newer webhook signing secret(s), comma separated for rotation.
 PAYSTACK_WEBHOOK_SECRETS=
 POSTGRES_DB=stechpay

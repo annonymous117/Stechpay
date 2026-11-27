@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 from .constants import MAX_LEVEL, MIN_LEVEL
 from .models import Department, SessionConfig
 
-MATRIC_PATTERN = r"^([A-Z]{2,5})/(\d{2})/(\d{2,6})$"
+MATRIC_PATTERN = r"^([A-Z]{2,5})/(?:(DE)/)?(\d{2})/(\d{2,6})$"
 MATRIC_RE = re.compile(MATRIC_PATTERN)
 
 
@@ -25,13 +25,13 @@ def parse_matric(raw_value):
         raise ValidationError(
             {
                 "matric_number": (
-                    "Invalid matric number format. Expected DEPT/YY/NNN "
-                    "(e.g. STA/24/020)."
+                    "Invalid matric number format. Expected DEPT/YY/NNN or "
+                    "DEPT/DE/YY/NNN (e.g. STA/24/020 or STA/DE/25/020)."
                 )
             }
         )
 
-    dept_code, yy, number = match.groups()
+    dept_code, direct_entry, yy, number = match.groups()
     active_depts = Department.get_active_map()
     if dept_code not in active_depts:
         raise ValidationError(
@@ -60,15 +60,17 @@ def parse_matric(raw_value):
             {"matric_number": "Matric number contains a future admission year."}
         )
 
-    # 1st year (entry_year == session_start) is 100L, 2nd year is 200L, etc.
-    years_in_school = session_start - entry_year + 1
-    level = min(max(years_in_school * 100, MIN_LEVEL), MAX_LEVEL)
+    # The year is the student's actual admission year, including Direct Entry.
+    entry_level = 200 if direct_entry else 100
+    level = min(max(entry_level + (session_start - entry_year) * 100, MIN_LEVEL), MAX_LEVEL)
 
     return {
         "normalized": value,
         "department_code": dept_code,
         "department_name": active_depts[dept_code],
         "entry_year": entry_year,
+        "entry_level": entry_level,
+        "direct_entry": bool(direct_entry),
         "number": number,
         "level": level,
     }
